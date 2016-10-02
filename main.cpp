@@ -2,7 +2,7 @@
 	set -eu
 	echo "Compiling..."
 	rm -f *.bin
-	gcc --std=c++14 -Wall -O2 -lstdc++ -lpthread -ldl -I libs -I libs/emilib main.cpp -o wfc.bin
+	gcc --std=c++14 -Wall -O2 -g -lstdc++ -lpthread -ldl -I libs -I libs/emilib main.cpp -o wfc.bin
 	mkdir -p output
 	./wfc.bin
 	exit
@@ -14,6 +14,7 @@
 #include <numeric>
 #include <random>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #define STB_IMAGE_IMPLEMENTATION 1
@@ -75,17 +76,17 @@ public:
 	Array2D() : width(0), height(0) {}
 	Array2D(size_t w, size_t h, T value) : width(w), height(h), data(w * h, value) {}
 
-	T& operator()(size_t x, size_t y)
+	inline T& operator()(size_t x, size_t y)
 	{
-		CHECK_LT_F(x, width);
-		CHECK_LT_F(y, height);
+		DCHECK_LT_F(x, width);
+		DCHECK_LT_F(y, height);
 		return data[y * width + x];
 	}
 
-	const T& operator()(size_t x, size_t y) const
+	inline const T& operator()(size_t x, size_t y) const
 	{
-		CHECK_LT_F(x, width);
-		CHECK_LT_F(y, height);
+		DCHECK_LT_F(x, width);
+		DCHECK_LT_F(y, height);
 		return data[y * width + x];
 	}
 
@@ -103,19 +104,19 @@ public:
 	Array3D() : width(0), height(0), depth(0) {}
 	Array3D(size_t w, size_t h, size_t d, T value) : width(w), height(h), depth(d), data(w * h * d, value) {}
 
-	T& operator()(size_t x, size_t y, size_t z)
+	inline T& operator()(size_t x, size_t y, size_t z)
 	{
-		CHECK_LT_F(x, width);
-		CHECK_LT_F(y, height);
-		CHECK_LT_F(z, depth);
+		DCHECK_LT_F(x, width);
+		DCHECK_LT_F(y, height);
+		DCHECK_LT_F(z, depth);
 		return data[z * width * height + y * width + x];
 	}
 
-	const T& operator()(size_t x, size_t y, size_t z) const
+	inline const T& operator()(size_t x, size_t y, size_t z) const
 	{
-		CHECK_LT_F(x, width);
-		CHECK_LT_F(y, height);
-		CHECK_LT_F(z, depth);
+		DCHECK_LT_F(x, width);
+		DCHECK_LT_F(y, height);
+		DCHECK_LT_F(z, depth);
 		return data[z * width * height + y * width + x];
 	}
 };
@@ -141,13 +142,16 @@ struct Output
 	Array2D<Bool> _changes; // _width X _height
 };
 
+using Image = Array2D<RGBA>;
+
+// ----------------------------------------------------------------------------
+
 class Model
 {
 public:
 	size_t              _width;      // Of output image.
 	size_t              _height;     // Of output image.
 	size_t              _num_patterns;
-	Int                 _n;
 
 	bool                _periodic_out;
 
@@ -156,7 +160,7 @@ public:
 
 	virtual bool propagate(Output* output) const = 0;
 	virtual bool on_boundary(int x, int y) const = 0;
-	virtual Graphics graphics(const Output& output) const = 0;
+	virtual Image image(const Output& output) const = 0;
 };
 
 // ----------------------------------------------------------------------------
@@ -166,9 +170,12 @@ class OverlappingModel : public Model
 public:
 	OverlappingModel(
 		const PatternPrevalence& hashed_patterns,
-		Int n, size_t palette_size,
-		bool periodic_out,
-		size_t width, size_t height, size_t foundation);
+		const Palette&           palette,
+		Int                      n,
+		bool                     periodic_out,
+		size_t                   width,
+		size_t                   height,
+		size_t                   foundation);
 
 	bool propagate(Output* output) const override;
 
@@ -177,15 +184,45 @@ public:
 		return !_periodic_out && (x + _n > _width || y + _n > _height);
 	}
 
-	Graphics graphics(const Output& output) const override;
+	Image image(const Output& output) const override;
+
+	Graphics graphics(const Output& output) const;
 
 private:
+	Int                       _n;
 	// num_patterns X (2 * n - 1) X (2 * n - 1) X ???
 	// list of other pattern indices that agree on this x/y offset (?)
 	Array3D<std::vector<int>> _propagator;
 	// int         _n;
 	std::vector<Pattern>      _patterns;
 	size_t                    _foundation;
+
+	Palette                   _palette;
+};
+
+// ----------------------------------------------------------------------------
+
+using Tile = std::vector<RGBA>;
+using TileLoader = std::function<Tile(const std::string& tile_name)>;
+
+class TileModel : public Model
+{
+public:
+	TileModel(const configuru::Config& config, std::string subset_name, int width, int height, bool periodic, const TileLoader& tile_loader);
+
+	bool propagate(Output* output) const override;
+
+	bool on_boundary(int x, int y) const override
+	{
+		return false;
+	}
+
+	Image image(const Output& output) const override;
+
+private:
+	Array3D<Bool>                  _propagator; // 4 X _num_patterns X _num_patterns
+	std::vector<std::vector<RGBA>> _tiles;
+	size_t                         _tile_size;
 };
 
 // ----------------------------------------------------------------------------
@@ -269,9 +306,12 @@ Pattern make_pattern(Int n, const Fun& fun)
 
 OverlappingModel::OverlappingModel(
 	const PatternPrevalence& hashed_patterns,
-	Int n, size_t palette_size,
-	bool periodic_out,
-	size_t width, size_t height, size_t foundation)
+	const Palette&           palette,
+	Int                      n,
+	bool                     periodic_out,
+	size_t                   width,
+	size_t                   height,
+	size_t                   foundation)
 {
 	_width        = width;
 	_height       = height;
@@ -279,10 +319,11 @@ OverlappingModel::OverlappingModel(
 	_periodic_out = periodic_out;
 	_n            = n;
 	_foundation   = (_num_patterns + foundation) % _num_patterns;
+	_palette      = palette;
 
 	for (const auto& it : hashed_patterns)
 	{
-		_patterns.push_back(pattern_from_hash(it.first, n, palette_size));
+		_patterns.push_back(pattern_from_hash(it.first, n, _palette.size()));
 		_stationary.push_back(it.second);
 	}
 
@@ -394,6 +435,296 @@ Graphics OverlappingModel::graphics(const Output& output) const
 	return result;
 }
 
+Image image_from_graphics(const Graphics& graphics, const Palette& palette)
+{
+	Image result(graphics.width, graphics.height, {0, 0, 0, 0});
+
+	for (const auto y : irange(graphics.height)) {
+		for (const auto x : irange(graphics.width)) {
+			const auto& tile_constributors = graphics(x, y);
+			if (tile_constributors.empty()) {
+				result(x, y) = {0, 0, 0, 255};
+			} else if (tile_constributors.size() == 1) {
+				result(x, y) = palette[tile_constributors[0]];
+			} else {
+				size_t r = 0;
+				size_t g = 0;
+				size_t b = 0;
+				size_t a = 0;
+				for (const auto tile : tile_constributors) {
+					r += palette[tile].r;
+					g += palette[tile].g;
+					b += palette[tile].b;
+					a += palette[tile].a;
+				}
+				r /= tile_constributors.size();
+				g /= tile_constributors.size();
+				b /= tile_constributors.size();
+				a /= tile_constributors.size();
+				result(x, y) = {(uint8_t)r, (uint8_t)g, (uint8_t)b, (uint8_t)a};
+			}
+		}
+	}
+
+	return result;
+}
+
+Image OverlappingModel::image(const Output& output) const
+{
+	return image_from_graphics(graphics(output), _palette);
+}
+
+// ----------------------------------------------------------------------------
+
+Tile rotate(const Tile& in_tile, const size_t tile_size)
+{
+	CHECK_EQ_F(in_tile.size(), tile_size * tile_size);
+	Tile out_tile;
+	for (size_t y : irange(tile_size)) {
+		for (size_t x : irange(tile_size)) {
+			out_tile.push_back(in_tile[tile_size - 1 - y + x * tile_size]);
+		}
+	}
+	return out_tile;
+}
+
+TileModel::TileModel(const configuru::Config& config, std::string subset_name, int width, int height, bool periodic_out, const TileLoader& tile_loader)
+{
+	_width        = width;
+	_height       = height;
+	_periodic_out = periodic_out;
+
+	_tile_size        = config.get_or("tile_size", 16);
+	const bool unique = config.get_or("unique",    false);
+
+	std::unordered_set<std::string> subset;
+	if (subset_name != "") {
+		for (const auto& tile_name : config["subsets"][subset_name].as_array()) {
+			subset.insert(tile_name.as_string());
+		}
+	}
+
+	std::vector<std::array<int,     8>>  action;
+	std::unordered_map<std::string, size_t> first_occurrence;
+
+	for (const auto& tile : config["tiles"].as_array()) {
+		const std::string tile_name = tile["name"].as_string();
+		if (!subset.empty() && subset.count(tile_name) == 0) { continue; }
+
+		std::function<int(int)> a, b;
+		int cardinality;
+
+		std::string sym = tile.get_or("symmetry", "X");
+		if (sym == "L") {
+			cardinality = 4;
+			a = [](int i){ return (i + 1) % 4; };
+			b = [](int i){ return i % 2 == 0 ? i + 1 : i - 1; };
+		} else if (sym == "T") {
+			cardinality = 4;
+			a = [](int i){ return (i + 1) % 4; };
+			b = [](int i){ return i % 2 == 0 ? i : 4 - i; };
+		} else if (sym == "I") {
+			cardinality = 2;
+			a = [](int i){ return 1 - i; };
+			b = [](int i){ return i; };
+		} else if (sym == "\\") {
+			cardinality = 2;
+			a = [](int i){ return 1 - i; };
+			b = [](int i){ return 1 - i; };
+		} else if (sym == "X") {
+			cardinality = 1;
+			a = [](int i){ return i; };
+			b = [](int i){ return i; };
+		} else {
+			ABORT_F("Unknown symmetry '%s'", sym.c_str());
+		}
+
+		const size_t num_patterns_so_far = action.size();
+		first_occurrence[tile_name] = num_patterns_so_far;
+
+		for (int t = 0; t < cardinality; ++t) {
+			std::array<int, 8> map;
+
+			map[0] = t;
+			map[1] = a(t);
+			map[2] = a(a(t));
+			map[3] = a(a(a(t)));
+			map[4] = b(t);
+			map[5] = b(a(t));
+			map[6] = b(a(a(t)));
+			map[7] = b(a(a(a(t))));
+
+			for (int s = 0; s < 8; ++s) {
+				map[s] += num_patterns_so_far;
+			}
+
+			action.push_back(map);
+		}
+
+		if (unique) {
+			for (int t = 0; t < cardinality; ++t) {
+				const Tile bitmap = tile_loader(emilib::strprintf("%s %d", tile_name.c_str(), t));
+				CHECK_EQ_F(bitmap.size(), _tile_size * _tile_size);
+				_tiles.push_back(bitmap);
+			}
+		} else {
+			const Tile bitmap = tile_loader(emilib::strprintf("%s", tile_name.c_str()));
+			CHECK_EQ_F(bitmap.size(), _tile_size * _tile_size);
+			_tiles.push_back(bitmap);
+			for (int t = 1; t < cardinality; ++t) {
+				_tiles.push_back(rotate(_tiles[num_patterns_so_far + t - 1], _tile_size));
+			}
+		}
+
+		for (int t = 0; t < cardinality; ++t) {
+			_stationary.push_back(tile.get_or("weight", 1.0));
+		}
+	}
+
+	_num_patterns = action.size();
+
+	_propagator = Array3D<Bool>(4, _num_patterns, _num_patterns, false);
+
+	for (const auto& neighbor : config["neighbors"].as_array()) {
+		const auto left  = neighbor["left"];
+		const auto right = neighbor["right"];
+		CHECK_EQ_F(left.array_size(),  2u);
+		CHECK_EQ_F(right.array_size(), 2u);
+
+		const auto left_tile_name = left[0].as_string();
+		const auto right_tile_name = right[0].as_string();
+
+		if (!subset.empty() && (subset.count(left_tile_name) == 0 || subset.count(right_tile_name) == 0)) { continue; }
+
+		int L = action[first_occurrence[left_tile_name]][left[1].get<int>()];
+		int R = action[first_occurrence[right_tile_name]][right[1].get<int>()];
+		int D = action[L][1];
+		int U = action[R][1];
+
+		_propagator(0, L,            R)            = true;
+		_propagator(0, action[L][6], action[R][6]) = true;
+		_propagator(0, action[R][4], action[L][4]) = true;
+		_propagator(0, action[R][2], action[L][2]) = true;
+
+		_propagator(1, D,            U)            = true;
+		_propagator(1, action[U][6], action[D][6]) = true;
+		_propagator(1, action[D][4], action[U][4]) = true;
+		_propagator(1, action[U][2], action[D][2]) = true;
+	}
+
+	for (int t1 = 0; t1 < _num_patterns; ++t1) {
+		for (int t2 = 0; t2 < _num_patterns; ++t2) {
+			_propagator(2, t1, t2) = _propagator(0, t2, t1);
+			_propagator(3, t1, t2) = _propagator(1, t2, t1);
+		}
+	}
+}
+
+bool TileModel::propagate(Output* output) const
+{
+	bool did_change = false;
+
+	for (int x2 = 0; x2 < _width; ++x2) {
+		for (int y2 = 0; y2 < _height; ++y2) {
+			for (int d = 0; d < 4; ++d) {
+				int x1 = x2, y1 = y2;
+				if (d == 0) {
+					if (x2 == 0) {
+						if (!_periodic_out) { continue; }
+						x1 = _width - 1;
+					} else {
+						x1 = x2 - 1;
+					}
+				} else if (d == 1) {
+					if (y2 == _height - 1)
+					{
+						if (!_periodic_out) { continue; }
+						y1 = 0;
+					} else {
+						y1 = y2 + 1;
+					}
+				} else if (d == 2) {
+					if (x2 == _width - 1)
+					{
+						if (!_periodic_out) { continue; }
+						x1 = 0;
+					} else {
+						x1 = x2 + 1;
+					}
+				} else {
+					if (y2 == 0)
+					{
+						if (!_periodic_out) { continue; }
+						y1 = _height - 1;
+					} else {
+						y1 = y2 - 1;
+					}
+				}
+
+				if (!output->_changes(x1, y1)) { continue; }
+
+				for (int t2 = 0; t2 < _num_patterns; ++t2) {
+					if (output->_wave(x2, y2, t2)) {
+						bool b = false;
+						for (int t1 = 0; t1 < _num_patterns && !b; ++t1) {
+							if (output->_wave(x1, y1, t1)) {
+								b = _propagator(d, t1, t2);
+							}
+						}
+						if (!b) {
+							output->_wave(x2, y2, t2) = false;
+							output->_changes(x2, y2) = true;
+							did_change = true;
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return did_change;
+}
+
+Image TileModel::image(const Output& output) const
+{
+	Image result(_width * _tile_size, _height * _tile_size, {});
+
+	for (int x = 0; x < _width; ++x) {
+		for (int y = 0; y < _height; ++y) {
+			double sum = 0;
+			for (const auto t : irange(_num_patterns)) {
+				if (output._wave(x, y, t)) {
+					sum += _stationary[t];
+				}
+			}
+
+			for (int yt = 0; yt < _tile_size; ++yt) {
+				for (int xt = 0; xt < _tile_size; ++xt) {
+					if (sum == 0) {
+						result(x * _tile_size + xt, y * _tile_size + yt) = RGBA{0, 0, 0, 255};
+					} else {
+						double r = 0, g = 0, b = 0, a = 0;
+						for (int t = 0; t < _num_patterns; ++t) {
+							if (output._wave(x, y, t)) {
+								RGBA c = _tiles[t][xt + yt * _tile_size];
+								r += (double)c.r * _stationary[t] / sum;
+								g += (double)c.g * _stationary[t] / sum;
+								b += (double)c.b * _stationary[t] / sum;
+								a += (double)c.a * _stationary[t] / sum;
+							}
+						}
+
+						result(x * _tile_size + xt, y * _tile_size + yt) =
+						    RGBA{(uint8_t)r, (uint8_t)g, (uint8_t)b, (uint8_t)a};
+					}
+				}
+			}
+		}
+	}
+
+	return result;
+}
+
 // ----------------------------------------------------------------------------
 
 PalettedImage load_paletted_image(const std::string& path)
@@ -443,37 +774,6 @@ PalettedImage load_paletted_image(const std::string& path)
 		static_cast<size_t>(height),
 		data, palette
 	};
-}
-
-std::vector<RGBA> rgba_from_graphics(const Graphics& graphics, const Palette& palette)
-{
-	std::vector<RGBA> result;
-	result.reserve(graphics.width * graphics.height);
-	for (const auto tile_constributors : graphics) {
-		if (tile_constributors.empty()) {
-			result.push_back({0, 0, 0, 255});
-		} else if (tile_constributors.size() == 1) {
-			result.push_back(palette[tile_constributors[0]]);
-		} else {
-			size_t r = 0;
-			size_t g = 0;
-			size_t b = 0;
-			size_t a = 0;
-			for (const auto tile : tile_constributors) {
-				r += palette[tile].r;
-				g += palette[tile].g;
-				b += palette[tile].b;
-				a += palette[tile].a;
-			}
-			r /= tile_constributors.size();
-			g /= tile_constributors.size();
-			b /= tile_constributors.size();
-			a /= tile_constributors.size();
-			result.push_back({(uint8_t)r, (uint8_t)g, (uint8_t)b, (uint8_t)a});
-		}
-	}
-
-	return result;
 }
 
 // n = side of the pattern, e.g. 3.
@@ -591,7 +891,7 @@ Result observe(const Model& model, Output* output, RandomDouble& random_double)
 }
 
 
-Result run(Output *output, const Model& model, size_t seed, size_t limit, const Palette& palette)
+Result run(Output *output, const Model& model, size_t seed, size_t limit)
 {
 	output->_wave = Array3D<Bool>(model._width, model._height, model._num_patterns, true);
 	output->_changes = Array2D<Bool>(model._width, model._height, false);
@@ -609,13 +909,37 @@ Result run(Output *output, const Model& model, size_t seed, size_t limit, const 
 		while (model.propagate(output));
 
 		// const auto out_path = emilib::strprintf("output/simple_knot_%d.png", l);
-		// const auto graphics = model.graphics(*output);
-		// const auto rgba = rgba_from_graphics(graphics, palette);
-		// stbi_write_png(out_path.c_str(), model._width, model._height, 4, rgba.data(), 0);
+		// const auto image = model.image(*output);
+		// stbi_write_png(out_path.c_str(), model._width, model._height, 4, image.data.data(), 0);
 	}
 
 	LOG_F(INFO, "Unfinished after %lu iterations", limit);
 	return Result::kUnfinished;
+}
+
+void run_and_write(const configuru::Config& config, const Model& model)
+{
+	const std::string name        = config["name"].as_string();
+	const size_t      limit       = config.get_or("limit",       0);
+	const size_t      screenshots = config.get_or("screenshots", 2);
+
+	for (const auto i : irange(screenshots)) {
+		for (const auto attempt : irange(10)) {
+			(void)attempt;
+			int seed = rand();
+
+			Output output;
+			const auto result = run(&output, model, seed, limit);
+
+			if (result == Result::kSuccess) {
+				const auto image = model.image(output);
+				const auto out_path = emilib::strprintf("output/%s_%lu.png", name.c_str(), i);
+				CHECK_F(stbi_write_png(out_path.c_str(), image.width, image.height, 4, image.data.data(), 0) != 0,
+				        "Failed to write image to %s", out_path.c_str());
+				break;
+			}
+		}
+	}
 }
 
 void run_overlapping(const configuru::Config& config)
@@ -630,33 +954,42 @@ void run_overlapping(const configuru::Config& config)
 	const bool   periodic_out = config.get_or("periodic_out", true);
 	const bool   periodic_in  = config.get_or("periodic_in",  true);
 	const size_t foundation   = config.get_or("foundation",    8);
-	const size_t limit        = config.get_or("limit",         0);
 
 	const auto sample_image = load_paletted_image(in_path.c_str());
 	LOG_F(INFO, "palette size: %lu", sample_image.palette.size());
 	const auto hashed_patterns = extract_patterns(sample_image, n, periodic_in, symmetry);
 	LOG_F(INFO, "Found %lu unique patterns in sample image", hashed_patterns.size());
 
-	std::unique_ptr<const Model> model(new OverlappingModel(hashed_patterns, n, sample_image.palette.size(), periodic_out, out_width, out_height, foundation));
+	const OverlappingModel model{hashed_patterns, sample_image.palette, n, periodic_out, out_width, out_height, foundation};
 
-	for (const auto i : irange(config.get_or("screenshots", 2))) {
-		for (const auto attempt : irange(10)) {
-			(void)attempt;
-			int seed = rand();
+	run_and_write(config, model);
+}
 
-			Output output;
-			const auto result = run(&output, *model, seed, limit, sample_image.palette);
+void run_tiled(const configuru::Config& config)
+{
+	const std::string name       = config["name"].as_string();
+	const size_t      out_width  = config.get_or("width",    48);
+	const size_t      out_height = config.get_or("height",   48);
+	const std::string subset     = config.get_or("subset",   std::string());
+	const bool        periodic   = config.get_or("periodic", false);
 
-			if (result == Result::kSuccess) {
-				const auto graphics = model->graphics(output);
-				const auto rgba = rgba_from_graphics(graphics, sample_image.palette);
-				const auto out_path = emilib::strprintf("output/%s_%d.png", name.c_str(), i);
-				CHECK_F(stbi_write_png(out_path.c_str(), out_width, out_height, 4, rgba.data(), 0) != 0,
-				        "Failed to write image to %s", out_path.c_str());
-				break;
-			}
-		}
-	}
+	const TileLoader tile_loader = [&](const std::string& tile_name) -> Tile
+	{
+		const std::string path = emilib::strprintf("samples/%s/%s.bmp", name.c_str(), tile_name.c_str());
+		int width, height, comp;
+		RGBA* rgba = reinterpret_cast<RGBA*>(stbi_load(path.c_str(), &width, &height, &comp, 4));
+		CHECK_NOTNULL_F(rgba);
+		const auto num_pixels = width * height;
+		Tile tile(rgba, rgba + num_pixels);
+		stbi_image_free(rgba);
+		return tile;
+	};
+
+	const auto root_dir = "samples/" + name + "/";
+	const auto tile_config = configuru::parse_file(root_dir + "data.cfg", configuru::CFG);
+	const TileModel model(tile_config, subset, out_width, out_height, periodic, tile_loader);
+
+	run_and_write(config, model);
 }
 
 int main(int argc, char* argv[])
@@ -664,8 +997,14 @@ int main(int argc, char* argv[])
 	loguru::init(argc, argv);
 
 	const auto samples = configuru::parse_file("samples.cfg", configuru::CFG);
+
 	for (const auto& p : samples["overlapping"].as_array()) {
 		LOG_SCOPE_F(INFO, "%s", p["name"].c_str());
 		run_overlapping(p);
+	}
+
+	for (const auto& p : samples["tiled"].as_array()) {
+		LOG_SCOPE_F(INFO, "Tiled %s", p["name"].c_str());
+		run_tiled(p);
 	}
 }
