@@ -62,6 +62,9 @@ using PatternHash       = uint64_t; // Another representation of a Pattern.
 using PatternPrevalence = std::unordered_map<PatternHash, size_t>;
 using RandomDouble      = std::function<double()>;
 
+const auto kInvalidIndex = static_cast<size_t>(-1);
+const auto kInvalidHash = static_cast<PatternHash>(-1);
+
 enum class Result
 {
 	kSuccess,
@@ -167,10 +170,9 @@ public:
 	size_t              _num_patterns;
 
 	bool                _periodic_out;
-	size_t              _foundation = 0;
+	size_t              _foundation = kInvalidIndex; // Index of pattern which is at the base, or kInvalidIndex
 
 	std::vector<double> _stationary; // num_patterns
-
 
 	virtual bool propagate(Output* output) const = 0;
 	virtual bool on_boundary(int x, int y) const = 0;
@@ -189,7 +191,7 @@ public:
 		bool                     periodic_out,
 		size_t                   width,
 		size_t                   height,
-		int                      foundation);
+		PatternHash              foundation_pattern);
 
 	bool propagate(Output* output) const override;
 
@@ -328,18 +330,21 @@ OverlappingModel::OverlappingModel(
 	bool                     periodic_out,
 	size_t                   width,
 	size_t                   height,
-	int                      foundation)
+	PatternHash              foundation_pattern)
 {
 	_width        = width;
 	_height       = height;
 	_num_patterns = hashed_patterns.size();
 	_periodic_out = periodic_out;
 	_n            = n;
-	_foundation   = (_num_patterns + foundation) % _num_patterns;
 	_palette      = palette;
 
 	for (const auto& it : hashed_patterns)
 	{
+		if (it.first == foundation_pattern) {
+			_foundation = _patterns.size();
+		}
+
 		_patterns.push_back(pattern_from_hash(it.first, n, _palette.size()));
 		_stationary.push_back(it.second);
 	}
@@ -798,7 +803,9 @@ PalettedImage load_paletted_image(const std::string& path)
 }
 
 // n = side of the pattern, e.g. 3.
-PatternPrevalence extract_patterns(const PalettedImage& sample, int n, bool periodic_in, size_t symmetry)
+PatternPrevalence extract_patterns(
+	const PalettedImage& sample, int n, bool periodic_in, size_t symmetry,
+	PatternHash* out_lowest_pattern)
 {
 	CHECK_LE_F(n, sample.width);
 	CHECK_LE_F(n, sample.height);
@@ -810,11 +817,6 @@ PatternPrevalence extract_patterns(const PalettedImage& sample, int n, bool peri
 	const auto reflect = [&](const Pattern& p){ return make_pattern(n, [&](size_t x, size_t y){ return p[n - 1 - x + y * n]; }); };
 
 	PatternPrevalence patterns;
-
-	auto add_pattern = [&](const Pattern& pattern)
-	{
-		patterns[hash_from_pattern(pattern, sample.palette.size())] += 1;
-	};
 
 	for (size_t y : irange(periodic_in ? sample.height : sample.height - n + 1)) {
 		for (size_t x : irange(periodic_in ? sample.width : sample.width - n + 1)) {
@@ -829,7 +831,11 @@ PatternPrevalence extract_patterns(const PalettedImage& sample, int n, bool peri
 			ps[7] = reflect(ps[6]);
 
 			for (int k = 0; k < symmetry; ++k) {
-				add_pattern(ps[k]);
+				auto hash = hash_from_pattern(ps[k], sample.palette.size());
+				patterns[hash] += 1;
+				if (out_lowest_pattern && y == sample.height - 1) {
+					*out_lowest_pattern = hash;
+				}
 			}
 		}
 	}
@@ -917,6 +923,24 @@ Result run(Output* output, const Model& model, size_t seed, size_t limit)
 	output->_wave = Array3D<Bool>(model._width, model._height, model._num_patterns, true);
 	output->_changes = Array2D<Bool>(model._width, model._height, false);
 
+	if (model._foundation != kInvalidIndex) {
+		for (const auto x : irange(model._width)) {
+			for (const auto t : irange(model._num_patterns)) {
+				if (t != model._foundation) {
+					output->_wave(x, model._height - 1, t) = false;
+				}
+			}
+			output->_changes(x, model._height - 1) = true;
+
+			for (const auto y : irange(model._height - 1)) {
+				output->_wave(x, y, model._foundation) = false;
+				output->_changes(x, y) = true;
+			}
+
+			while (model.propagate(output));
+		}
+	}
+
 	std::mt19937 gen(seed);
 	std::uniform_real_distribution<double> dis(0.0, 1.0);
 	RandomDouble random_double = [&]() { return dis(gen); };
@@ -968,17 +992,18 @@ void run_overlapping(const std::string& image_dir, const configuru::Config& conf
 	const auto name = config["name"].as_string();
 	const auto in_path = emilib::strprintf("%s%s.bmp", image_dir.c_str(), name.c_str());
 
-	const int    n            = config.get_or("n",             3);
-	const size_t out_width    = config.get_or("width",        48);
-	const size_t out_height   = config.get_or("height",       48);
-	const size_t symmetry     = config.get_or("symmetry",      8);
-	const bool   periodic_out = config.get_or("periodic_out", true);
-	const bool   periodic_in  = config.get_or("periodic_in",  true);
-	const int    foundation   = config.get_or("foundation",    0);
+	const int    n              = config.get_or("n",             3);
+	const size_t out_width      = config.get_or("width",        48);
+	const size_t out_height     = config.get_or("height",       48);
+	const size_t symmetry       = config.get_or("symmetry",      8);
+	const bool   periodic_out   = config.get_or("periodic_out", true);
+	const bool   periodic_in    = config.get_or("periodic_in",  true);
+	const auto   has_foundation = config.get_or("foundation",   false);
 
 	const auto sample_image = load_paletted_image(in_path.c_str());
 	LOG_F(INFO, "palette size: %lu", sample_image.palette.size());
-	const auto hashed_patterns = extract_patterns(sample_image, n, periodic_in, symmetry);
+	PatternHash foundation = kInvalidHash;
+	const auto hashed_patterns = extract_patterns(sample_image, n, periodic_in, symmetry, has_foundation ? &foundation : nullptr);
 	LOG_F(INFO, "Found %lu unique patterns in sample image", hashed_patterns.size());
 
 	const OverlappingModel model{hashed_patterns, sample_image.palette, n, periodic_out, out_width, out_height, foundation};
