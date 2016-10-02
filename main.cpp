@@ -1,26 +1,31 @@
 #if 0
+	# Who needs a makefile? Just run ./main.cpp [arguments]
 	set -eu
 	./configure.sh
 
 	gcc_flags="--std=c++14 -Wall -O2 -g -DNDEBUG"
+	linker_flags="-lstdc++ -lpthread -ldl"
+
+	mkdir -p build
+	obj_files=""
 
 	for source_path in *.cpp; do
-	    obj_path="${source_path%.cpp}.o"
-	    if [ ! -f $obj_path ] || [ $obj_path -ot $source_path ]; then
-	    	echo "Compiling $source_path to $obj_path..."
+		obj_path="build/${source_path%.cpp}.o"
+		obj_files="$obj_files $obj_path"
+		if [ ! -f $obj_path ] || [ $obj_path -ot $source_path ]; then
+			echo "Compiling $source_path to $obj_path..."
 			gcc $gcc_flags                  \
 			    -I libs -I libs/emilib      \
 			    -c $source_path -o $obj_path
-	    fi
+		fi
 	done
 
 	echo "Linking..."
-	gcc $gcc_flags                  \
-		-lstdc++ -lpthread -ldl     \
-		*.o -o wfc.bin
+	gcc $gcc_flags $linker_flags $obj_files -o wfc.bin
 
+	# Run it:
 	mkdir -p output
-	./wfc.bin
+	./wfc.bin $@
 	exit
 #endif
 
