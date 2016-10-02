@@ -1,12 +1,24 @@
 #if 0
 	set -eu
 	./configure.sh
-	echo "Compiling..."
-	rm -f *.bin
-	gcc --std=c++14 -Wall -O2 -g -DNDEBUG  \
-		-I libs -I libs/emilib             \
-		-lstdc++ -lpthread -ldl            \
-		main.cpp -o wfc.bin
+
+	gcc_flags="--std=c++14 -Wall -O2 -g -DNDEBUG"
+
+	for source_path in *.cpp; do
+	    obj_path="${source_path%.cpp}.o"
+	    if [ ! -f $obj_path ] || [ $obj_path -ot $source_path ]; then
+	    	echo "Compiling $source_path to $obj_path..."
+			gcc $gcc_flags                  \
+			    -I libs -I libs/emilib      \
+			    -c $source_path -o $obj_path
+	    fi
+	done
+
+	echo "Linking..."
+	gcc $gcc_flags                  \
+		-lstdc++ -lpthread -ldl     \
+		*.o -o wfc.bin
+
 	mkdir -p output
 	./wfc.bin
 	exit
@@ -21,20 +33,12 @@
 #include <unordered_set>
 #include <vector>
 
-#define STB_IMAGE_IMPLEMENTATION 1
-#include <stb_image.h>
-
-#define STB_IMAGE_WRITE_IMPLEMENTATION 1
-#include <stb_image_write.h>
-
-#define CONFIGURU_IMPLEMENTATION 1
 #include <configuru.hpp>
-
-#define LOGURU_IMPLEMENTATION 1
-#include <loguru.hpp>
-
 #include <emilib/irange.hpp>
-#include <emilib/strprintf.cpp>
+#include <emilib/strprintf.hpp>
+#include <loguru.hpp>
+#include <stb_image.h>
+#include <stb_image_write.h>
 
 using emilib::irange;
 
