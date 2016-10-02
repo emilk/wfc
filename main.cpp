@@ -964,7 +964,7 @@ void run_overlapping(const configuru::Config& config)
 	const auto name = config["name"].as_string();
 	const auto in_path = emilib::strprintf("samples/%s.bmp", name.c_str());
 
-	const int    n            = config.get_or("N",             3);
+	const int    n            = config.get_or("n",             3);
 	const size_t out_width    = config.get_or("width",        48);
 	const size_t out_height   = config.get_or("height",       48);
 	const size_t symmetry     = config.get_or("symmetry",      8);
