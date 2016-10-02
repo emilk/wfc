@@ -1,8 +1,12 @@
 #if 0
 	set -eu
+	./configure.sh
 	echo "Compiling..."
 	rm -f *.bin
-	gcc --std=c++14 -Wall -O2 -g -lstdc++ -lpthread -ldl -I libs -I libs/emilib main.cpp -o wfc.bin
+	gcc --std=c++14 -Wall -O2 -g -DNDEBUG  \
+		-I libs -I libs/emilib             \
+		-lstdc++ -lpthread -ldl            \
+		main.cpp -o wfc.bin
 	mkdir -p output
 	./wfc.bin
 	exit
@@ -48,7 +52,6 @@ using Pattern           = std::vector<ColorIndex>;
 using PatternHash       = uint64_t; // Another representation of a Pattern.
 using PatternPrevalence = std::unordered_map<PatternHash, size_t>;
 using RandomDouble      = std::function<double()>;
-using Int               = int;
 
 enum class Result
 {
@@ -81,6 +84,7 @@ public:
 		DCHECK_LT_F(x, width);
 		DCHECK_LT_F(y, height);
 		return data[y * width + x];
+		// return data[x * height + y];
 	}
 
 	inline const T& operator()(size_t x, size_t y) const
@@ -88,10 +92,8 @@ public:
 		DCHECK_LT_F(x, width);
 		DCHECK_LT_F(y, height);
 		return data[y * width + x];
+		// return data[x * height + y];
 	}
-
-	auto begin() const { return data.begin(); }
-	auto end()   const { return data.end();   }
 };
 
 template<typename T>
@@ -109,7 +111,8 @@ public:
 		DCHECK_LT_F(x, width);
 		DCHECK_LT_F(y, height);
 		DCHECK_LT_F(z, depth);
-		return data[z * width * height + y * width + x];
+		// return data[z * width * height + y * width + x];
+		return data[x * height * depth + y * depth + z]; // better cache hit ratio in our use case
 	}
 
 	inline const T& operator()(size_t x, size_t y, size_t z) const
@@ -117,7 +120,8 @@ public:
 		DCHECK_LT_F(x, width);
 		DCHECK_LT_F(y, height);
 		DCHECK_LT_F(z, depth);
-		return data[z * width * height + y * width + x];
+		// return data[z * width * height + y * width + x];
+		return data[x * height * depth + y * depth + z]; // better cache hit ratio in our use case
 	}
 };
 
@@ -154,6 +158,7 @@ public:
 	size_t              _num_patterns;
 
 	bool                _periodic_out;
+	size_t              _foundation = 0;
 
 	std::vector<double> _stationary; // num_patterns
 
@@ -171,11 +176,11 @@ public:
 	OverlappingModel(
 		const PatternPrevalence& hashed_patterns,
 		const Palette&           palette,
-		Int                      n,
+		int                      n,
 		bool                     periodic_out,
 		size_t                   width,
 		size_t                   height,
-		size_t                   foundation);
+		int                      foundation);
 
 	bool propagate(Output* output) const override;
 
@@ -189,13 +194,12 @@ public:
 	Graphics graphics(const Output& output) const;
 
 private:
-	Int                       _n;
+	int                       _n;
 	// num_patterns X (2 * n - 1) X (2 * n - 1) X ???
 	// list of other pattern indices that agree on this x/y offset (?)
 	Array3D<std::vector<int>> _propagator;
 	// int         _n;
 	std::vector<Pattern>      _patterns;
-	size_t                    _foundation;
 
 	Palette                   _palette;
 };
@@ -259,15 +263,15 @@ PatternHash hash_from_pattern(const Pattern& pattern, size_t palette_size)
 {
 	PatternHash result = 0;
 	size_t power = 1;
-	for (const auto v : pattern)
+	for (const auto i : irange(pattern.size()))
 	{
-		result += v * power;
+		result += pattern[pattern.size() - 1 - i] * power;
 		power *= palette_size;
 	}
 	return result;
 }
 
-Pattern pattern_from_hash(const PatternHash hash, Int n, size_t palette_size)
+Pattern pattern_from_hash(const PatternHash hash, int n, size_t palette_size)
 {
 	size_t residue = hash;
 	size_t power = std::pow(palette_size, n * n);
@@ -291,7 +295,7 @@ Pattern pattern_from_hash(const PatternHash hash, Int n, size_t palette_size)
 }
 
 template<typename Fun>
-Pattern make_pattern(Int n, const Fun& fun)
+Pattern make_pattern(int n, const Fun& fun)
 {
 	Pattern result(n * n);
 	for (auto dy : irange(n)) {
@@ -307,11 +311,11 @@ Pattern make_pattern(Int n, const Fun& fun)
 OverlappingModel::OverlappingModel(
 	const PatternPrevalence& hashed_patterns,
 	const Palette&           palette,
-	Int                      n,
+	int                      n,
 	bool                     periodic_out,
 	size_t                   width,
 	size_t                   height,
-	size_t                   foundation)
+	int                      foundation)
 {
 	_width        = width;
 	_height       = height;
@@ -387,9 +391,13 @@ bool OverlappingModel::propagate(Output* output) const
 
 					for (int t2 = 0; t2 < _num_patterns; ++t2) {
 						bool b = false;
+
 						const auto& prop = _propagator(t2, _n - 1 - dx, _n - 1 - dy);
-						for (int i1 = 0; i1 < prop.size() && !b; ++i1) {
-							b = output->_wave(x1, y1, prop[i1]);
+						for (const auto& p : prop) {
+							if (output->_wave(x1, y1, p)) {
+								b = true;
+								break;
+							}
 						}
 
 						if (output->_wave(sx, sy, t2) && !b) {
@@ -777,7 +785,7 @@ PalettedImage load_paletted_image(const std::string& path)
 }
 
 // n = side of the pattern, e.g. 3.
-PatternPrevalence extract_patterns(const PalettedImage& sample, Int n, bool periodic_in, size_t symmetry)
+PatternPrevalence extract_patterns(const PalettedImage& sample, int n, bool periodic_in, size_t symmetry)
 {
 	CHECK_LE_F(n, sample.width);
 	CHECK_LE_F(n, sample.height);
@@ -891,7 +899,7 @@ Result observe(const Model& model, Output* output, RandomDouble& random_double)
 }
 
 
-Result run(Output *output, const Model& model, size_t seed, size_t limit)
+Result run(Output* output, const Model& model, size_t seed, size_t limit)
 {
 	output->_wave = Array3D<Bool>(model._width, model._height, model._num_patterns, true);
 	output->_changes = Array2D<Bool>(model._width, model._height, false);
@@ -947,13 +955,13 @@ void run_overlapping(const configuru::Config& config)
 	const auto name = config["name"].as_string();
 	const auto in_path = emilib::strprintf("samples/%s.bmp", name.c_str());
 
-	const Int    n            = config.get_or("N",             3);
+	const int    n            = config.get_or("N",             3);
 	const size_t out_width    = config.get_or("width",        48);
 	const size_t out_height   = config.get_or("height",       48);
 	const size_t symmetry     = config.get_or("symmetry",      8);
 	const bool   periodic_out = config.get_or("periodic_out", true);
 	const bool   periodic_in  = config.get_or("periodic_in",  true);
-	const size_t foundation   = config.get_or("foundation",    8);
+	const int    foundation   = config.get_or("foundation",    0);
 
 	const auto sample_image = load_paletted_image(in_path.c_str());
 	LOG_F(INFO, "palette size: %lu", sample_image.palette.size());
