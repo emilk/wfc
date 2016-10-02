@@ -963,10 +963,10 @@ void run_and_write(const configuru::Config& config, const Model& model)
 	}
 }
 
-void run_overlapping(const configuru::Config& config)
+void run_overlapping(const std::string& image_dir, const configuru::Config& config)
 {
 	const auto name = config["name"].as_string();
-	const auto in_path = emilib::strprintf("samples/%s.bmp", name.c_str());
+	const auto in_path = emilib::strprintf("%s%s.bmp", image_dir.c_str(), name.c_str());
 
 	const int    n            = config.get_or("n",             3);
 	const size_t out_width    = config.get_or("width",        48);
@@ -984,9 +984,10 @@ void run_overlapping(const configuru::Config& config)
 	const OverlappingModel model{hashed_patterns, sample_image.palette, n, periodic_out, out_width, out_height, foundation};
 
 	run_and_write(config, model);
+	config.check_dangling();
 }
 
-void run_tiled(const configuru::Config& config)
+void run_tiled(const std::string& image_dir, const configuru::Config& config)
 {
 	const std::string name       = config["name"].as_string();
 	const size_t      out_width  = config.get_or("width",    48);
@@ -996,7 +997,7 @@ void run_tiled(const configuru::Config& config)
 
 	const TileLoader tile_loader = [&](const std::string& tile_name) -> Tile
 	{
-		const std::string path = emilib::strprintf("samples/%s/%s.bmp", name.c_str(), tile_name.c_str());
+		const std::string path = emilib::strprintf("%s%s/%s.bmp", image_dir.c_str(), name.c_str(), tile_name.c_str());
 		int width, height, comp;
 		RGBA* rgba = reinterpret_cast<RGBA*>(stbi_load(path.c_str(), &width, &height, &comp, 4));
 		CHECK_NOTNULL_F(rgba);
@@ -1006,26 +1007,52 @@ void run_tiled(const configuru::Config& config)
 		return tile;
 	};
 
-	const auto root_dir = "samples/" + name + "/";
+	const auto root_dir = image_dir + name + "/";
 	const auto tile_config = configuru::parse_file(root_dir + "data.cfg", configuru::CFG);
 	const TileModel model(tile_config, subset, out_width, out_height, periodic, tile_loader);
 
 	run_and_write(config, model);
 }
 
+void run_config_file(const std::string& path)
+{
+	LOG_F(INFO, "Running all samples in %s", path.c_str());
+	const auto samples = configuru::parse_file(path, configuru::CFG);
+	const auto image_dir = samples["image_dir"].as_string();
+
+	if (samples.count("overlapping")) {
+		for (const auto& p : samples["overlapping"].as_array()) {
+			LOG_SCOPE_F(INFO, "%s", p["name"].c_str());
+			run_overlapping(image_dir, p);
+		}
+	}
+
+	if (samples.count("tiled")) {
+		for (const auto& p : samples["tiled"].as_array()) {
+			LOG_SCOPE_F(INFO, "Tiled %s", p["name"].c_str());
+			run_tiled(image_dir, p);
+		}
+	}
+}
+
 int main(int argc, char* argv[])
 {
 	loguru::init(argc, argv);
 
-	const auto samples = configuru::parse_file("samples.cfg", configuru::CFG);
+	bool run_default = true;
 
-	for (const auto& p : samples["overlapping"].as_array()) {
-		LOG_SCOPE_F(INFO, "%s", p["name"].c_str());
-		run_overlapping(p);
+	for (int i = 1; i < argc; ++i) {
+		if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
+			printf("Just run the program with no arguments, or name a .cfg file with samples to run.\n");
+			exit(0);
+		} else {
+			run_config_file(argv[i]);
+			run_default = false;
+		}
 	}
 
-	for (const auto& p : samples["tiled"].as_array()) {
-		LOG_SCOPE_F(INFO, "Tiled %s", p["name"].c_str());
-		run_tiled(p);
+	if (run_default) {
+		run_config_file("samples.cfg");
 	}
+
 }
