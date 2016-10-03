@@ -420,6 +420,8 @@ bool OverlappingModel::propagate(Output* output) const
 					}
 
 					for (int t2 = 0; t2 < _num_patterns; ++t2) {
+						if (!output->_wave.get(sx, sy, t2)) { continue; }
+
 						bool b = false;
 
 						const auto& prop = _propagator.ref(t2, _n - 1 - dx, _n - 1 - dy);
@@ -430,7 +432,7 @@ bool OverlappingModel::propagate(Output* output) const
 							}
 						}
 
-						if (!b && output->_wave.get(sx, sy, t2)) {
+						if (!b) {
 							output->_changes.set(sx, sy, true);
 							output->_wave.set(sx, sy, t2, false);
 							did_change = true;
