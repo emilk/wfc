@@ -32,6 +32,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <limits>
 #include <memory>
 #include <numeric>
 #include <random>
@@ -72,6 +73,7 @@ using Pattern           = std::vector<ColorIndex>;
 using PatternHash       = uint64_t; // Another representation of a Pattern.
 using PatternPrevalence = std::unordered_map<PatternHash, size_t>;
 using RandomDouble      = std::function<double()>;
+using PatternIndex      = uint16_t;
 
 const auto kInvalidIndex = static_cast<size_t>(-1);
 const auto kInvalidHash = static_cast<PatternHash>(-1);
@@ -148,6 +150,8 @@ public:
 	inline const T&     ref(size_t x, size_t y, size_t z) const { return data[index(x, y, z)]; }
 	inline       T      get(size_t x, size_t y, size_t z) const { return data[index(x, y, z)]; }
 	inline void set(size_t x, size_t y, size_t z, const T& value) { data[index(x, y, z)] = value; }
+
+	inline size_t size() const { return data.size(); }
 };
 
 using Graphics = Array2D<std::vector<ColorIndex>>;
@@ -167,8 +171,11 @@ struct PalettedImage
 // What actually changes
 struct Output
 {
-	Array3D<Bool> _wave;    // _width X _height X num_patterns
-	Array2D<Bool> _changes; // _width X _height
+	// _width X _height X num_patterns
+	// _wave.get(x, y, t) == is the pattern t possible at x, y?
+	// Starts off true everywhere.
+	Array3D<Bool> _wave;
+	Array2D<Bool> _changes; // _width X _height. Starts off false everywhere.
 };
 
 using Image = Array2D<RGBA>;
@@ -181,11 +188,11 @@ public:
 	size_t              _width;      // Of output image.
 	size_t              _height;     // Of output image.
 	size_t              _num_patterns;
-
 	bool                _periodic_out;
 	size_t              _foundation = kInvalidIndex; // Index of pattern which is at the base, or kInvalidIndex
 
-	std::vector<double> _stationary; // num_patterns
+	// The weight of each pattern (e.g. how often that pattern occurs in the sample image).
+	std::vector<double> _pattern_weight; // num_patterns
 
 	virtual bool propagate(Output* output) const = 0;
 	virtual bool on_boundary(int x, int y) const = 0;
@@ -221,11 +228,9 @@ private:
 	int                       _n;
 	// num_patterns X (2 * n - 1) X (2 * n - 1) X ???
 	// list of other pattern indices that agree on this x/y offset (?)
-	Array3D<std::vector<int>> _propagator;
-	// int         _n;
-	std::vector<Pattern>      _patterns;
-
-	Palette                   _palette;
+	Array3D<std::vector<PatternIndex>> _propagator;
+	std::vector<Pattern>               _patterns;
+	Palette                            _palette;
 };
 
 // ----------------------------------------------------------------------------
@@ -352,18 +357,16 @@ OverlappingModel::OverlappingModel(
 	_n            = n;
 	_palette      = palette;
 
-	for (const auto& it : hashed_patterns)
-	{
+	for (const auto& it : hashed_patterns) {
 		if (it.first == foundation_pattern) {
 			_foundation = _patterns.size();
 		}
 
 		_patterns.push_back(pattern_from_hash(it.first, n, _palette.size()));
-		_stationary.push_back(it.second);
+		_pattern_weight.push_back(it.second);
 	}
 
-	const auto agrees = [&](const Pattern& p1, const Pattern& p2, int dx, int dy)
-	{
+	const auto agrees = [&](const Pattern& p1, const Pattern& p2, int dx, int dy) {
 		int xmin = dx < 0 ? 0 : dx, xmax = dx < 0 ? dx + n : n;
 		int ymin = dy < 0 ? 0 : dy, ymax = dy < 0 ? dy + n : n;
 		for (int y = ymin; y < ymax; ++y) {
@@ -376,7 +379,10 @@ OverlappingModel::OverlappingModel(
 		return true;
 	};
 
-	_propagator = Array3D<std::vector<int>>(_num_patterns, 2 * n - 1, 2 * n - 1, {});
+	_propagator = Array3D<std::vector<PatternIndex>>(_num_patterns, 2 * n - 1, 2 * n - 1, {});
+
+	size_t longest_propagator = 0;
+	size_t sum_propagator = 0;
 
 	for (auto t : irange(_num_patterns)) {
 		for (auto x : irange<int>(2 * n - 1)) {
@@ -388,9 +394,14 @@ OverlappingModel::OverlappingModel(
 					}
 				}
 				list.shrink_to_fit();
+				longest_propagator = std::max(longest_propagator, list.size());
+				sum_propagator += list.size();
 			}
 		}
 	}
+
+	LOG_F(INFO, "propagator length: mean/max/sum: %.1f, %lu, %lu",
+	    (double)sum_propagator / _propagator.size(), longest_propagator, sum_propagator);
 }
 
 bool OverlappingModel::propagate(Output* output) const
@@ -422,17 +433,17 @@ bool OverlappingModel::propagate(Output* output) const
 					for (int t2 = 0; t2 < _num_patterns; ++t2) {
 						if (!output->_wave.get(sx, sy, t2)) { continue; }
 
-						bool b = false;
+						bool can_pattern_fit = false;
 
 						const auto& prop = _propagator.ref(t2, _n - 1 - dx, _n - 1 - dy);
-						for (const auto& p : prop) {
-							if (output->_wave.get(x1, y1, p)) {
-								b = true;
+						for (const auto& t3 : prop) {
+							if (output->_wave.get(x1, y1, t3)) {
+								can_pattern_fit = true;
 								break;
 							}
 						}
 
-						if (!b) {
+						if (!can_pattern_fit) {
 							output->_changes.set(sx, sy, true);
 							output->_wave.set(sx, sy, t2, false);
 							did_change = true;
@@ -617,7 +628,7 @@ TileModel::TileModel(const configuru::Config& config, std::string subset_name, i
 		}
 
 		for (int t = 0; t < cardinality; ++t) {
-			_stationary.push_back(tile.get_or("weight", 1.0));
+			_pattern_weight.push_back(tile.get_or("weight", 1.0));
 		}
 	}
 
@@ -731,7 +742,7 @@ Image TileModel::image(const Output& output) const
 			double sum = 0;
 			for (const auto t : irange(_num_patterns)) {
 				if (output._wave.get(x, y, t)) {
-					sum += _stationary[t];
+					sum += _pattern_weight[t];
 				}
 			}
 
@@ -744,10 +755,10 @@ Image TileModel::image(const Output& output) const
 						for (int t = 0; t < _num_patterns; ++t) {
 							if (output._wave.get(x, y, t)) {
 								RGBA c = _tiles[t][xt + yt * _tile_size];
-								r += (double)c.r * _stationary[t] / sum;
-								g += (double)c.g * _stationary[t] / sum;
-								b += (double)c.b * _stationary[t] / sum;
-								a += (double)c.a * _stationary[t] / sum;
+								r += (double)c.r * _pattern_weight[t] / sum;
+								g += (double)c.g * _pattern_weight[t] / sum;
+								b += (double)c.b * _pattern_weight[t] / sum;
+								a += (double)c.a * _pattern_weight[t] / sum;
 							}
 						}
 
@@ -854,70 +865,63 @@ PatternPrevalence extract_patterns(
 	return patterns;
 }
 
-Result observe(const Model& model, Output* output, RandomDouble& random_double)
+Result find_lowest_entropy(const Model& model, const Output& output, RandomDouble& random_double,
+                           int* argminx, int* argminy)
 {
-	const auto log_t = std::log(model._num_patterns);
+	// We actually calculate exp(entropy), i.e. the sum of the weights of the possible patterns
 
-	std::vector<double> log_prob;
-	for (const auto s : model._stationary) {
-		log_prob.push_back(std::log(s));
-	}
-
-	double min = 1E+3;
-	int argminx = -1, argminy = -1;
+	double min = std::numeric_limits<double>::infinity();
 
 	for (int x = 0; x < model._width; ++x) {
 		for (int y = 0; y < model._height; ++y) {
 			if (model.on_boundary(x, y)) { continue; }
 
-			size_t amount = 0;
-			double sum = 0;
+			size_t num_superimposed = 0;
+			double entropy = 0;
 
 			for (int t = 0; t < model._num_patterns; ++t) {
-				if (output->_wave.get(x, y, t)) {
-					amount += 1;
-					sum += model._stationary[t];
+				if (output._wave.get(x, y, t)) {
+					num_superimposed += 1;
+					entropy += model._pattern_weight[t];
 				}
 			}
 
-			if (sum == 0 || amount == 0) {
+			if (entropy == 0 || num_superimposed == 0) {
 				return Result::kFail;
 			}
 
-			double entropy;
-
-			if (amount == 1) {
-				entropy = 0;
-			} else if (amount == model._num_patterns) {
-				entropy = log_t;
-			} else {
-				double main_sum = 0;
-				double log_sum = std::log(sum);
-				for (int t = 0; t < model._num_patterns; ++t) {
-					if (output->_wave.get(x, y, t)) {
-						main_sum += model._stationary[t] * log_prob[t];
-					}
-				}
-				entropy = log_sum - main_sum / sum;
+			if (num_superimposed == 1) {
+				continue; // Already frozen
 			}
 
-			const double noise = 1E-6 * random_double();
-			if (entropy > 0 && entropy + noise < min)
-			{
-				min = entropy + noise;
-				argminx = x;
-				argminy = y;
+			// Add a tie-breaking bias:
+			const double noise = 0.5 * random_double();
+			entropy += noise;
+
+			if (entropy < min) {
+				min = entropy;
+				*argminx = x;
+				*argminy = y;
 			}
 		}
 	}
 
-	if (argminx == -1 && argminy == -1) {
+	if (min == std::numeric_limits<double>::infinity()) {
 		return Result::kSuccess;
+	} else {
+		return Result::kUnfinished;
 	}
+}
+
+Result observe(const Model& model, Output* output, RandomDouble& random_double)
+{
+	int argminx, argminy;
+	const auto result = find_lowest_entropy(model, *output, random_double, &argminx, &argminy);
+	if (result != Result::kUnfinished) { return result; }
 
 	std::vector<double> distribution(model._num_patterns);
 	for (int t = 0; t < model._num_patterns; ++t) {
-		distribution[t] = output->_wave.get(argminx, argminy, t) ? model._stationary[t] : 0;
+		distribution[t] = output->_wave.get(argminx, argminy, t) ? model._pattern_weight[t] : 0;
 	}
 	size_t r = spin_the_bottle(std::move(distribution), random_double());
 	for (int t = 0; t < model._num_patterns; ++t) {
