@@ -112,21 +112,17 @@ public:
 	Array2D() : width(0), height(0) {}
 	Array2D(size_t w, size_t h, T value) : width(w), height(h), data(w * h, value) {}
 
-	inline T& operator()(size_t x, size_t y)
+	const size_t index(size_t x, size_t y) const
 	{
 		DCHECK_LT_F(x, width);
 		DCHECK_LT_F(y, height);
-		return data[y * width + x];
-		// return data[x * height + y];
+		return y * width + x;
 	}
 
-	inline const T& operator()(size_t x, size_t y) const
-	{
-		DCHECK_LT_F(x, width);
-		DCHECK_LT_F(y, height);
-		return data[y * width + x];
-		// return data[x * height + y];
-	}
+	inline       T& mut_ref(size_t x, size_t y)       { return data[index(x, y)]; }
+	inline const T&     ref(size_t x, size_t y) const { return data[index(x, y)]; }
+	inline       T      get(size_t x, size_t y) const { return data[index(x, y)]; }
+	inline void set(size_t x, size_t y, const T& value) { data[index(x, y)] = value; }
 };
 
 template<typename T>
@@ -139,23 +135,19 @@ public:
 	Array3D() : width(0), height(0), depth(0) {}
 	Array3D(size_t w, size_t h, size_t d, T value) : width(w), height(h), depth(d), data(w * h * d, value) {}
 
-	inline T& operator()(size_t x, size_t y, size_t z)
+	const size_t index(size_t x, size_t y, size_t z) const
 	{
 		DCHECK_LT_F(x, width);
 		DCHECK_LT_F(y, height);
 		DCHECK_LT_F(z, depth);
-		// return data[z * width * height + y * width + x];
-		return data[x * height * depth + y * depth + z]; // better cache hit ratio in our use case
+		// return z * width * height + y * width + x;
+		return x * height * depth + y * depth + z; // better cache hit ratio in our use case
 	}
 
-	inline const T& operator()(size_t x, size_t y, size_t z) const
-	{
-		DCHECK_LT_F(x, width);
-		DCHECK_LT_F(y, height);
-		DCHECK_LT_F(z, depth);
-		// return data[z * width * height + y * width + x];
-		return data[x * height * depth + y * depth + z]; // better cache hit ratio in our use case
-	}
+	inline       T& mut_ref(size_t x, size_t y, size_t z)       { return data[index(x, y, z)]; }
+	inline const T&     ref(size_t x, size_t y, size_t z) const { return data[index(x, y, z)]; }
+	inline       T      get(size_t x, size_t y, size_t z) const { return data[index(x, y, z)]; }
+	inline void set(size_t x, size_t y, size_t z, const T& value) { data[index(x, y, z)] = value; }
 };
 
 using Graphics = Array2D<std::vector<ColorIndex>>;
@@ -389,7 +381,7 @@ OverlappingModel::OverlappingModel(
 	for (auto t : irange(_num_patterns)) {
 		for (auto x : irange<int>(2 * n - 1)) {
 			for (auto y : irange<int>(2 * n - 1)) {
-				auto& list = _propagator(t, x, y);
+				auto& list = _propagator.mut_ref(t, x, y);
 				for (auto t2 : irange(_num_patterns)) {
 					if (agrees(_patterns[t], _patterns[t2], x - n + 1, y - n + 1)) {
 						list.push_back(t2);
@@ -407,9 +399,8 @@ bool OverlappingModel::propagate(Output* output) const
 
 	for (int x1 = 0; x1 < _width; ++x1) {
 		for (int y1 = 0; y1 < _height; ++y1) {
-			auto& changes = output->_changes(x1, y1);
-			if (!changes) { continue; }
-			changes = false;
+			if (!output->_changes.get(x1, y1)) { continue; }
+			output->_changes.set(x1, y1, false);
 
 			for (int dx = -_n + 1; dx < _n; ++dx) {
 				for (int dy = -_n + 1; dy < _n; ++dy) {
@@ -431,18 +422,18 @@ bool OverlappingModel::propagate(Output* output) const
 					for (int t2 = 0; t2 < _num_patterns; ++t2) {
 						bool b = false;
 
-						const auto& prop = _propagator(t2, _n - 1 - dx, _n - 1 - dy);
+						const auto& prop = _propagator.ref(t2, _n - 1 - dx, _n - 1 - dy);
 						for (const auto& p : prop) {
-							if (output->_wave(x1, y1, p)) {
+							if (output->_wave.get(x1, y1, p)) {
 								b = true;
 								break;
 							}
 						}
 
-						if (output->_wave(sx, sy, t2) && !b) {
-							output->_changes(sx, sy) = true;
+						if (!b && output->_wave.get(sx, sy, t2)) {
+							output->_changes.set(sx, sy, true);
+							output->_wave.set(sx, sy, t2, false);
 							did_change = true;
-							output->_wave(sx, sy, t2) = false;
 						}
 					}
 				}
@@ -458,7 +449,7 @@ Graphics OverlappingModel::graphics(const Output& output) const
 	Graphics result(_width, _height, {});
 	for (const auto y : irange(_height)) {
 		for (const auto x : irange(_width)) {
-			auto& tile_constributors = result(x, y);
+			auto& tile_constributors = result.mut_ref(x, y);
 
 			for (int dy = 0; dy < _n; ++dy) {
 				for (int dx = 0; dx < _n; ++dx) {
@@ -471,7 +462,7 @@ Graphics OverlappingModel::graphics(const Output& output) const
 					if (on_boundary(sx, sy)) { continue; }
 
 					for (int t = 0; t < _num_patterns; ++t) {
-						if (output._wave(sx, sy, t)) {
+						if (output._wave.get(sx, sy, t)) {
 							tile_constributors.push_back(_patterns[t][dx + dy * _n]);
 						}
 					}
@@ -488,11 +479,11 @@ Image image_from_graphics(const Graphics& graphics, const Palette& palette)
 
 	for (const auto y : irange(graphics.height)) {
 		for (const auto x : irange(graphics.width)) {
-			const auto& tile_constributors = graphics(x, y);
+			const auto& tile_constributors = graphics.ref(x, y);
 			if (tile_constributors.empty()) {
-				result(x, y) = {0, 0, 0, 255};
+				result.set(x, y, {0, 0, 0, 255});
 			} else if (tile_constributors.size() == 1) {
-				result(x, y) = palette[tile_constributors[0]];
+				result.set(x, y, palette[tile_constributors[0]]);
 			} else {
 				size_t r = 0;
 				size_t g = 0;
@@ -508,7 +499,7 @@ Image image_from_graphics(const Graphics& graphics, const Palette& palette)
 				g /= tile_constributors.size();
 				b /= tile_constributors.size();
 				a /= tile_constributors.size();
-				result(x, y) = {(uint8_t)r, (uint8_t)g, (uint8_t)b, (uint8_t)a};
+				result.set(x, y, {(uint8_t)r, (uint8_t)g, (uint8_t)b, (uint8_t)a});
 			}
 		}
 	}
@@ -648,21 +639,21 @@ TileModel::TileModel(const configuru::Config& config, std::string subset_name, i
 		int D = action[L][1];
 		int U = action[R][1];
 
-		_propagator(0, L,            R)            = true;
-		_propagator(0, action[L][6], action[R][6]) = true;
-		_propagator(0, action[R][4], action[L][4]) = true;
-		_propagator(0, action[R][2], action[L][2]) = true;
+		_propagator.set(0, L,            R,            true);
+		_propagator.set(0, action[L][6], action[R][6], true);
+		_propagator.set(0, action[R][4], action[L][4], true);
+		_propagator.set(0, action[R][2], action[L][2], true);
 
-		_propagator(1, D,            U)            = true;
-		_propagator(1, action[U][6], action[D][6]) = true;
-		_propagator(1, action[D][4], action[U][4]) = true;
-		_propagator(1, action[U][2], action[D][2]) = true;
+		_propagator.set(1, D,            U,            true);
+		_propagator.set(1, action[U][6], action[D][6], true);
+		_propagator.set(1, action[D][4], action[U][4], true);
+		_propagator.set(1, action[U][2], action[D][2], true);
 	}
 
 	for (int t1 = 0; t1 < _num_patterns; ++t1) {
 		for (int t2 = 0; t2 < _num_patterns; ++t2) {
-			_propagator(2, t1, t2) = _propagator(0, t2, t1);
-			_propagator(3, t1, t2) = _propagator(1, t2, t1);
+			_propagator.set(2, t1, t2, _propagator.get(0, t2, t1));
+			_propagator.set(3, t1, t2, _propagator.get(1, t2, t1));
 		}
 	}
 }
@@ -683,24 +674,21 @@ bool TileModel::propagate(Output* output) const
 						x1 = x2 - 1;
 					}
 				} else if (d == 1) {
-					if (y2 == _height - 1)
-					{
+					if (y2 == _height - 1) {
 						if (!_periodic_out) { continue; }
 						y1 = 0;
 					} else {
 						y1 = y2 + 1;
 					}
 				} else if (d == 2) {
-					if (x2 == _width - 1)
-					{
+					if (x2 == _width - 1) {
 						if (!_periodic_out) { continue; }
 						x1 = 0;
 					} else {
 						x1 = x2 + 1;
 					}
 				} else {
-					if (y2 == 0)
-					{
+					if (y2 == 0) {
 						if (!_periodic_out) { continue; }
 						y1 = _height - 1;
 					} else {
@@ -708,19 +696,19 @@ bool TileModel::propagate(Output* output) const
 					}
 				}
 
-				if (!output->_changes(x1, y1)) { continue; }
+				if (!output->_changes.get(x1, y1)) { continue; }
 
 				for (int t2 = 0; t2 < _num_patterns; ++t2) {
-					if (output->_wave(x2, y2, t2)) {
+					if (output->_wave.get(x2, y2, t2)) {
 						bool b = false;
 						for (int t1 = 0; t1 < _num_patterns && !b; ++t1) {
-							if (output->_wave(x1, y1, t1)) {
-								b = _propagator(d, t1, t2);
+							if (output->_wave.get(x1, y1, t1)) {
+								b = _propagator.get(d, t1, t2);
 							}
 						}
 						if (!b) {
-							output->_wave(x2, y2, t2) = false;
-							output->_changes(x2, y2) = true;
+							output->_wave.set(x2, y2, t2, false);
+							output->_changes.set(x2, y2, true);
 							did_change = true;
 						}
 					}
@@ -740,7 +728,7 @@ Image TileModel::image(const Output& output) const
 		for (int y = 0; y < _height; ++y) {
 			double sum = 0;
 			for (const auto t : irange(_num_patterns)) {
-				if (output._wave(x, y, t)) {
+				if (output._wave.get(x, y, t)) {
 					sum += _stationary[t];
 				}
 			}
@@ -748,11 +736,11 @@ Image TileModel::image(const Output& output) const
 			for (int yt = 0; yt < _tile_size; ++yt) {
 				for (int xt = 0; xt < _tile_size; ++xt) {
 					if (sum == 0) {
-						result(x * _tile_size + xt, y * _tile_size + yt) = RGBA{0, 0, 0, 255};
+						result.set(x * _tile_size + xt, y * _tile_size + yt, RGBA{0, 0, 0, 255});
 					} else {
 						double r = 0, g = 0, b = 0, a = 0;
 						for (int t = 0; t < _num_patterns; ++t) {
-							if (output._wave(x, y, t)) {
+							if (output._wave.get(x, y, t)) {
 								RGBA c = _tiles[t][xt + yt * _tile_size];
 								r += (double)c.r * _stationary[t] / sum;
 								g += (double)c.g * _stationary[t] / sum;
@@ -761,8 +749,8 @@ Image TileModel::image(const Output& output) const
 							}
 						}
 
-						result(x * _tile_size + xt, y * _tile_size + yt) =
-						    RGBA{(uint8_t)r, (uint8_t)g, (uint8_t)b, (uint8_t)a};
+						result.set(x * _tile_size + xt, y * _tile_size + yt,
+						           RGBA{(uint8_t)r, (uint8_t)g, (uint8_t)b, (uint8_t)a});
 					}
 				}
 			}
@@ -884,7 +872,7 @@ Result observe(const Model& model, Output* output, RandomDouble& random_double)
 			double sum = 0;
 
 			for (int t = 0; t < model._num_patterns; ++t) {
-				if (output->_wave(x, y, t)) {
+				if (output->_wave.get(x, y, t)) {
 					amount += 1;
 					sum += model._stationary[t];
 				}
@@ -904,7 +892,7 @@ Result observe(const Model& model, Output* output, RandomDouble& random_double)
 				double main_sum = 0;
 				double log_sum = std::log(sum);
 				for (int t = 0; t < model._num_patterns; ++t) {
-					if (output->_wave(x, y, t)) {
+					if (output->_wave.get(x, y, t)) {
 						main_sum += model._stationary[t] * log_prob[t];
 					}
 				}
@@ -927,13 +915,13 @@ Result observe(const Model& model, Output* output, RandomDouble& random_double)
 
 	std::vector<double> distribution(model._num_patterns);
 	for (int t = 0; t < model._num_patterns; ++t) {
-		distribution[t] = output->_wave(argminx, argminy, t) ? model._stationary[t] : 0;
+		distribution[t] = output->_wave.get(argminx, argminy, t) ? model._stationary[t] : 0;
 	}
 	size_t r = spin_the_bottle(std::move(distribution), random_double());
 	for (int t = 0; t < model._num_patterns; ++t) {
-		output->_wave(argminx, argminy, t) = (t == r);
+		output->_wave.set(argminx, argminy, t, t == r);
 	}
-	output->_changes(argminx, argminy) = true;
+	output->_changes.set(argminx, argminy, true);
 
 	return Result::kUnfinished;
 }
@@ -948,14 +936,14 @@ Output create_output(const Model& model)
 		for (const auto x : irange(model._width)) {
 			for (const auto t : irange(model._num_patterns)) {
 				if (t != model._foundation) {
-					output._wave(x, model._height - 1, t) = false;
+					output._wave.set(x, model._height - 1, t, false);
 				}
 			}
-			output._changes(x, model._height - 1) = true;
+			output._changes.set(x, model._height - 1, true);
 
 			for (const auto y : irange(model._height - 1)) {
-				output._wave(x, y, model._foundation) = false;
-				output._changes(x, y) = true;
+				output._wave.set(x, y, model._foundation, false);
+				output._changes.set(x, y, true);
 			}
 
 			while (model.propagate(&output));
