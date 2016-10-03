@@ -32,6 +32,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <memory>
 #include <numeric>
 #include <random>
 #include <unordered_map>
@@ -44,6 +45,16 @@
 #include <loguru.hpp>
 #include <stb_image.h>
 #include <stb_image_write.h>
+
+#define JO_GIF_HEADER_FILE_ONLY
+#include <jo_gif.cpp>
+
+const auto kUsage = R"(
+wfc.bin [-h/--help] [--gif] [job=samples.cfg, ...]
+	-h/--help   Print this help
+	--gif       Export GIF images of the process
+	file        Jobs to run
+)";
 
 using emilib::irange;
 
@@ -64,6 +75,16 @@ using RandomDouble      = std::function<double()>;
 
 const auto kInvalidIndex = static_cast<size_t>(-1);
 const auto kInvalidHash = static_cast<PatternHash>(-1);
+
+const bool   kGifSeparatePalette     = true;
+const size_t kGifInterval         =   16; // Save an image every X iterations
+const int    kGifDelayCentiSec    =   1;
+const int    kGifEndPauseCentiSec = 200;
+
+struct Options
+{
+	bool export_gif = false;
+};
 
 enum class Result
 {
@@ -917,52 +938,65 @@ Result observe(const Model& model, Output* output, RandomDouble& random_double)
 	return Result::kUnfinished;
 }
 
-
-Result run(Output* output, const Model& model, size_t seed, size_t limit)
+Output create_output(const Model& model)
 {
-	output->_wave = Array3D<Bool>(model._width, model._height, model._num_patterns, true);
-	output->_changes = Array2D<Bool>(model._width, model._height, false);
+	Output output;
+	output._wave = Array3D<Bool>(model._width, model._height, model._num_patterns, true);
+	output._changes = Array2D<Bool>(model._width, model._height, false);
 
 	if (model._foundation != kInvalidIndex) {
 		for (const auto x : irange(model._width)) {
 			for (const auto t : irange(model._num_patterns)) {
 				if (t != model._foundation) {
-					output->_wave(x, model._height - 1, t) = false;
+					output._wave(x, model._height - 1, t) = false;
 				}
 			}
-			output->_changes(x, model._height - 1) = true;
+			output._changes(x, model._height - 1) = true;
 
 			for (const auto y : irange(model._height - 1)) {
-				output->_wave(x, y, model._foundation) = false;
-				output->_changes(x, y) = true;
+				output._wave(x, y, model._foundation) = false;
+				output._changes(x, y) = true;
 			}
 
-			while (model.propagate(output));
+			while (model.propagate(&output));
 		}
 	}
 
+	return output;
+}
+
+Result run(Output* output, const Model& model, size_t seed, size_t limit, jo_gif_t* gif_out)
+{
 	std::mt19937 gen(seed);
 	std::uniform_real_distribution<double> dis(0.0, 1.0);
 	RandomDouble random_double = [&]() { return dis(gen); };
 
 	for (size_t l = 0; l < limit || limit == 0; ++l) {
 		Result result = observe(model, output, random_double);
+
+		if (gif_out && l % kGifInterval == 0) {
+			const auto image = model.image(*output);
+			jo_gif_frame(gif_out, (uint8_t*)image.data.data(), kGifDelayCentiSec, kGifSeparatePalette);
+		}
+
 		if (result != Result::kUnfinished) {
+			if (gif_out) {
+				// Pause on the last image:
+				const auto image = model.image(*output);
+				jo_gif_frame(gif_out, (uint8_t*)image.data.data(), kGifEndPauseCentiSec, kGifSeparatePalette);
+			}
+
 			LOG_F(INFO, "%s after %lu iterations", result2str(result), l);
 			return result;
 		}
 		while (model.propagate(output));
-
-		// const auto out_path = emilib::strprintf("output/simple_knot_%d.png", l);
-		// const auto image = model.image(*output);
-		// stbi_write_png(out_path.c_str(), model._width, model._height, 4, image.data.data(), 0);
 	}
 
 	LOG_F(INFO, "Unfinished after %lu iterations", limit);
 	return Result::kUnfinished;
 }
 
-void run_and_write(const configuru::Config& config, const Model& model)
+void run_and_write(const Options& options, const configuru::Config& config, const Model& model)
 {
 	const std::string name        = config["name"].as_string();
 	const size_t      limit       = config.get_or("limit",       0);
@@ -973,8 +1007,22 @@ void run_and_write(const configuru::Config& config, const Model& model)
 			(void)attempt;
 			int seed = rand();
 
-			Output output;
-			const auto result = run(&output, model, seed, limit);
+			Output output = create_output(model);
+
+			jo_gif_t gif;
+
+			if (options.export_gif) {
+				const auto initial_image = model.image(output);
+				const auto gif_path = emilib::strprintf("output/%s_%lu.gif", name.c_str(), i);
+				const int gif_palette_size = 255; // TODO
+				gif = jo_gif_start(gif_path.c_str(), initial_image.width, initial_image.height, 0, gif_palette_size);
+			}
+
+			const auto result = run(&output, model, seed, limit, options.export_gif ? &gif : nullptr);
+
+			if (options.export_gif) {
+				jo_gif_end(&gif);
+			}
 
 			if (result == Result::kSuccess) {
 				const auto image = model.image(output);
@@ -987,7 +1035,7 @@ void run_and_write(const configuru::Config& config, const Model& model)
 	}
 }
 
-void run_overlapping(const std::string& image_dir, const configuru::Config& config)
+std::unique_ptr<Model> make_overlapping(const std::string& image_dir, const configuru::Config& config)
 {
 	const auto name = config["name"].as_string();
 	const auto in_path = emilib::strprintf("%s%s.bmp", image_dir.c_str(), name.c_str());
@@ -1006,13 +1054,12 @@ void run_overlapping(const std::string& image_dir, const configuru::Config& conf
 	const auto hashed_patterns = extract_patterns(sample_image, n, periodic_in, symmetry, has_foundation ? &foundation : nullptr);
 	LOG_F(INFO, "Found %lu unique patterns in sample image", hashed_patterns.size());
 
-	const OverlappingModel model{hashed_patterns, sample_image.palette, n, periodic_out, out_width, out_height, foundation};
-
-	run_and_write(config, model);
-	config.check_dangling();
+	return std::unique_ptr<Model>{
+		new OverlappingModel{hashed_patterns, sample_image.palette, n, periodic_out, out_width, out_height, foundation}
+	};
 }
 
-void run_tiled(const std::string& image_dir, const configuru::Config& config)
+std::unique_ptr<Model> make_tiled(const std::string& image_dir, const configuru::Config& config)
 {
 	const std::string name       = config["name"].as_string();
 	const size_t      out_width  = config.get_or("width",    48);
@@ -1034,12 +1081,12 @@ void run_tiled(const std::string& image_dir, const configuru::Config& config)
 
 	const auto root_dir = image_dir + name + "/";
 	const auto tile_config = configuru::parse_file(root_dir + "data.cfg", configuru::CFG);
-	const TileModel model(tile_config, subset, out_width, out_height, periodic, tile_loader);
-
-	run_and_write(config, model);
+	return std::unique_ptr<Model>{
+		new TileModel(tile_config, subset, out_width, out_height, periodic, tile_loader)
+	};
 }
 
-void run_config_file(const std::string& path)
+void run_config_file(const Options& options, const std::string& path)
 {
 	LOG_F(INFO, "Running all samples in %s", path.c_str());
 	const auto samples = configuru::parse_file(path, configuru::CFG);
@@ -1048,14 +1095,17 @@ void run_config_file(const std::string& path)
 	if (samples.count("overlapping")) {
 		for (const auto& p : samples["overlapping"].as_array()) {
 			LOG_SCOPE_F(INFO, "%s", p["name"].c_str());
-			run_overlapping(image_dir, p);
+			const auto model = make_overlapping(image_dir, p);
+			run_and_write(options, p, *model);
+			p.check_dangling();
 		}
 	}
 
 	if (samples.count("tiled")) {
 		for (const auto& p : samples["tiled"].as_array()) {
 			LOG_SCOPE_F(INFO, "Tiled %s", p["name"].c_str());
-			run_tiled(image_dir, p);
+			const auto model = make_tiled(image_dir, p);
+			run_and_write(options, p, *model);
 		}
 	}
 }
@@ -1064,20 +1114,27 @@ int main(int argc, char* argv[])
 {
 	loguru::init(argc, argv);
 
-	bool run_default = true;
+	Options options;
+
+	std::vector<std::string> files;
 
 	for (int i = 1; i < argc; ++i) {
 		if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
-			printf("Just run the program with no arguments, or name a .cfg file with samples to run.\n");
+			printf(kUsage);
 			exit(0);
+		} else if (strcmp(argv[i], "--gif") == 0) {
+			options.export_gif = true;
+			LOG_F(INFO, "Enabled GIF exporting");
 		} else {
-			run_config_file(argv[i]);
-			run_default = false;
+			files.push_back(argv[i]);
 		}
 	}
 
-	if (run_default) {
-		run_config_file("samples.cfg");
+	if (files.empty()) {
+		files.push_back("samples.cfg");
 	}
 
+	for (const auto& file : files) {
+		run_config_file(options, file);
+	}
 }

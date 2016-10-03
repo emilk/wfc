@@ -11,3 +11,5 @@
 #include <loguru.hpp>
 
 #include <emilib/strprintf.cpp>
+
+#include <jo_gif.cpp>

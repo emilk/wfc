@@ -19,12 +19,13 @@ This works on Mac, and maybe Linux.
 # Requirements
 C++14. Nothing more, really.
 
-All required third-party libraries are downloaded by the `./configure.sh` script. These are:
+All required third-party libraries are included or downloaded by the `./configure.sh` script. These are:
 
 * https://github.com/emilk/configuru (`.cfg` loading)
 * https://github.com/emilk/emilib (small helpers for looping and string formating)
 * https://github.com/emilk/loguru (logging and asserts)
 * https://github.com/nothings/stb (image read/write)
+* http://www.jonolick.com/home/gif-writer (write gif files)
 
 # Limitations
 This port supports everything in https://github.com/mxgmn/WaveFunctionCollapse (as of October 2016),
