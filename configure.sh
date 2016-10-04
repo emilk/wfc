@@ -1,3 +1,3 @@
 set -eu
 
-git submodule update --recursive
+git submodule update --init --recursive
