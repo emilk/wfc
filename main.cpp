@@ -1,33 +1,35 @@
 #if 0
 	# Who needs a makefile? Just run ./main.cpp [arguments]
+	# ./main.cpp clean will clear the build dir.
 	set -eu
-	./configure.sh
 
-	if [ "$(uname)" == "Darwin" ]; then
-		compiler=gcc
-	else
-		compiler=g++
+	if [ ! -z ${1+x} ] && [ $1 == "clean" ]; then
+		rm -rf build
+		exit 0
 	fi
 
-	cflags="--std=c++14 -Wall -Wno-sign-compare -O2 -g -DNDEBUG"
-	linker_flags="-lstdc++ -lpthread -ldl"
+	git submodule update --init --recursive
 
 	mkdir -p build
-	obj_files=""
+
+	CXX=g++
+	CPPFLAGS="--std=c++14 -Wall -Wno-sign-compare -O2 -g -DNDEBUG"
+	LDLIBS="-lstdc++ -lpthread -ldl"
+	OBJECTS=""
 
 	for source_path in *.cpp; do
 		obj_path="build/${source_path%.cpp}.o"
-		obj_files="$obj_files $obj_path"
+		OBJECTS="$OBJECTS $obj_path"
 		if [ ! -f $obj_path ] || [ $obj_path -ot $source_path ]; then
 			echo "Compiling $source_path to $obj_path..."
-			$compiler $cflags               \
-			    -I libs -I libs/emilib      \
+			$CXX $CPPFLAGS                      \
+			    -I libs -I libs/emilib          \
 			    -c $source_path -o $obj_path
 		fi
 	done
 
 	echo "Linking..."
-	$compiler $cflags $obj_files $linker_flags -o wfc.bin
+	$CXX $CPPFLAGS $OBJECTS $LDLIBS -o wfc.bin
 
 	# Run it:
 	mkdir -p output
