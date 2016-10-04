@@ -1,0 +1,3 @@
+[submodule "libs/emilib"]
+	path = libs/emilib
+	url = git@github.com:emilk/emilib.git
