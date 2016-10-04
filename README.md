@@ -10,11 +10,13 @@ publish, and distribute this file as you see fit.
 
 The sample images are from https://github.com/mxgmn/WaveFunctionCollapse, so they are NOT covered by the above license.
 
-# How to run
-Download third-party libraries by running `./configure.sh`.
-To compile and run the program, just run `./main.cpp` (yes, really).
-Optionally, just compile `main.cpp` with your favorite compile.
-This works on Mac, and maybe Linux.
+# How to get started
+
+    git clone git@github.com:emilk/wfc.git
+    cd wfc
+    ./main.cpp
+
+This works on Mac and Linux.
 
 # Requirements
 C++14. Nothing more, really.

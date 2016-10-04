@@ -3,7 +3,13 @@
 	set -eu
 	./configure.sh
 
-	gcc_flags="--std=c++14 -Wall -O2 -g -DNDEBUG"
+	if [ "$(uname)" == "Darwin" ]; then
+		compiler=gcc
+	else
+		compiler=g++
+	fi
+
+	cflags="--std=c++14 -Wall -Wno-sign-compare -O2 -g -DNDEBUG"
 	linker_flags="-lstdc++ -lpthread -ldl"
 
 	mkdir -p build
@@ -14,14 +20,14 @@
 		obj_files="$obj_files $obj_path"
 		if [ ! -f $obj_path ] || [ $obj_path -ot $source_path ]; then
 			echo "Compiling $source_path to $obj_path..."
-			gcc $gcc_flags                  \
+			$compiler $cflags               \
 			    -I libs -I libs/emilib      \
 			    -c $source_path -o $obj_path
 		fi
 	done
 
 	echo "Linking..."
-	gcc $gcc_flags $linker_flags $obj_files -o wfc.bin
+	$compiler $cflags $obj_files $linker_flags -o wfc.bin
 
 	# Run it:
 	mkdir -p output
