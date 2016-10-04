@@ -84,8 +84,8 @@ using PatternIndex      = uint16_t;
 const auto kInvalidIndex = static_cast<size_t>(-1);
 const auto kInvalidHash = static_cast<PatternHash>(-1);
 
-const bool   kGifSeparatePalette     = true;
-const size_t kGifInterval         =   16; // Save an image every X iterations
+const bool   kGifSeparatePalette  = true;
+const size_t kGifInterval         =  16; // Save an image every X iterations
 const int    kGifDelayCentiSec    =   1;
 const int    kGifEndPauseCentiSec = 200;
 
@@ -996,11 +996,10 @@ Result run(Output* output, const Model& model, size_t seed, size_t limit, jo_gif
 	return Result::kUnfinished;
 }
 
-void run_and_write(const Options& options, const configuru::Config& config, const Model& model)
+void run_and_write(const Options& options, const std::string& name, const configuru::Config& config, const Model& model)
 {
-	const std::string name        = config["name"].as_string();
-	const size_t      limit       = config.get_or("limit",       0);
-	const size_t      screenshots = config.get_or("screenshots", 2);
+	const size_t limit       = config.get_or("limit",       0);
+	const size_t screenshots = config.get_or("screenshots", 2);
 
 	for (const auto i : irange(screenshots)) {
 		for (const auto attempt : irange(10)) {
@@ -1037,8 +1036,8 @@ void run_and_write(const Options& options, const configuru::Config& config, cons
 
 std::unique_ptr<Model> make_overlapping(const std::string& image_dir, const configuru::Config& config)
 {
-	const auto name = config["name"].as_string();
-	const auto in_path = emilib::strprintf("%s%s.bmp", image_dir.c_str(), name.c_str());
+	const auto image_filename = config["image"].as_string();
+	const auto in_path = image_dir + image_filename;
 
 	const int    n              = config.get_or("n",             3);
 	const size_t out_width      = config.get_or("width",        48);
@@ -1061,7 +1060,7 @@ std::unique_ptr<Model> make_overlapping(const std::string& image_dir, const conf
 
 std::unique_ptr<Model> make_tiled(const std::string& image_dir, const configuru::Config& config)
 {
-	const std::string name       = config["name"].as_string();
+	const std::string subdir     = config["subdir"].as_string();
 	const size_t      out_width  = config.get_or("width",    48);
 	const size_t      out_height = config.get_or("height",   48);
 	const std::string subset     = config.get_or("subset",   std::string());
@@ -1069,7 +1068,7 @@ std::unique_ptr<Model> make_tiled(const std::string& image_dir, const configuru:
 
 	const TileLoader tile_loader = [&](const std::string& tile_name) -> Tile
 	{
-		const std::string path = emilib::strprintf("%s%s/%s.bmp", image_dir.c_str(), name.c_str(), tile_name.c_str());
+		const std::string path = emilib::strprintf("%s%s/%s.bmp", image_dir.c_str(), subdir.c_str(), tile_name.c_str());
 		int width, height, comp;
 		RGBA* rgba = reinterpret_cast<RGBA*>(stbi_load(path.c_str(), &width, &height, &comp, 4));
 		CHECK_NOTNULL_F(rgba);
@@ -1079,7 +1078,7 @@ std::unique_ptr<Model> make_tiled(const std::string& image_dir, const configuru:
 		return tile;
 	};
 
-	const auto root_dir = image_dir + name + "/";
+	const auto root_dir = image_dir + subdir + "/";
 	const auto tile_config = configuru::parse_file(root_dir + "data.cfg", configuru::CFG);
 	return std::unique_ptr<Model>{
 		new TileModel(tile_config, subset, out_width, out_height, periodic, tile_loader)
@@ -1093,19 +1092,19 @@ void run_config_file(const Options& options, const std::string& path)
 	const auto image_dir = samples["image_dir"].as_string();
 
 	if (samples.count("overlapping")) {
-		for (const auto& p : samples["overlapping"].as_array()) {
-			LOG_SCOPE_F(INFO, "%s", p["name"].c_str());
-			const auto model = make_overlapping(image_dir, p);
-			run_and_write(options, p, *model);
-			p.check_dangling();
+		for (const auto& p : samples["overlapping"].as_object()) {
+			LOG_SCOPE_F(INFO, "%s", p.key().c_str());
+			const auto model = make_overlapping(image_dir, p.value());
+			run_and_write(options, p.key(), p.value(), *model);
+			p.value().check_dangling();
 		}
 	}
 
 	if (samples.count("tiled")) {
-		for (const auto& p : samples["tiled"].as_array()) {
-			LOG_SCOPE_F(INFO, "Tiled %s", p["name"].c_str());
-			const auto model = make_tiled(image_dir, p);
-			run_and_write(options, p, *model);
+		for (const auto& p : samples["tiled"].as_object()) {
+			LOG_SCOPE_F(INFO, "Tiled %s", p.key().c_str());
+			const auto model = make_tiled(image_dir, p.value());
+			run_and_write(options, p.key(), p.value(), *model);
 		}
 	}
 }
