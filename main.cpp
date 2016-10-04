@@ -88,6 +88,7 @@ const bool   kGifSeparatePalette  = true;
 const size_t kGifInterval         =  16; // Save an image every X iterations
 const int    kGifDelayCentiSec    =   1;
 const int    kGifEndPauseCentiSec = 200;
+const size_t kUpscale             =   4; // Upscale images before saving
 
 struct Options
 {
@@ -185,6 +186,19 @@ struct Output
 };
 
 using Image = Array2D<RGBA>;
+
+// ----------------------------------------------------------------------------
+
+Image upsample(const Image& image)
+{
+	Image result(image.width * kUpscale, image.height * kUpscale, {});
+	for (const auto y : irange(result.height)) {
+		for (const auto x : irange(result.width)) {
+			result.set(x, y, image.get(x / kUpscale, y / kUpscale));
+		}
+	}
+	return result;
+}
 
 // ----------------------------------------------------------------------------
 
@@ -528,7 +542,7 @@ Image image_from_graphics(const Graphics& graphics, const Palette& palette)
 
 Image OverlappingModel::image(const Output& output) const
 {
-	return image_from_graphics(graphics(output), _palette);
+	return upsample(image_from_graphics(graphics(output), _palette));
 }
 
 // ----------------------------------------------------------------------------
