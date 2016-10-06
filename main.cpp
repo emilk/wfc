@@ -58,6 +58,8 @@
 #define JO_GIF_HEADER_FILE_ONLY
 #include <jo_gif.cpp>
 
+#include "arrays.hpp"
+
 const auto kUsage = R"(
 wfc.bin [-h/--help] [--gif] [job=samples.cfg, ...]
 	-h/--help   Print this help
@@ -113,56 +115,6 @@ const char* result2str(const Result result)
 
 const size_t MAX_COLORS = 1 << (sizeof(ColorIndex) * 8);
 
-template<typename T>
-struct Array2D
-{
-public:
-	size_t width, height;
-	std::vector<T> data;
-
-	Array2D() : width(0), height(0) {}
-	Array2D(size_t w, size_t h, T value) : width(w), height(h), data(w * h, value) {}
-
-	const size_t index(size_t x, size_t y) const
-	{
-		DCHECK_LT_F(x, width);
-		DCHECK_LT_F(y, height);
-		return y * width + x;
-	}
-
-	inline       T& mut_ref(size_t x, size_t y)       { return data[index(x, y)]; }
-	inline const T&     ref(size_t x, size_t y) const { return data[index(x, y)]; }
-	inline       T      get(size_t x, size_t y) const { return data[index(x, y)]; }
-	inline void set(size_t x, size_t y, const T& value) { data[index(x, y)] = value; }
-};
-
-template<typename T>
-struct Array3D
-{
-public:
-	size_t width, height, depth;
-	std::vector<T> data;
-
-	Array3D() : width(0), height(0), depth(0) {}
-	Array3D(size_t w, size_t h, size_t d, T value) : width(w), height(h), depth(d), data(w * h * d, value) {}
-
-	const size_t index(size_t x, size_t y, size_t z) const
-	{
-		DCHECK_LT_F(x, width);
-		DCHECK_LT_F(y, height);
-		DCHECK_LT_F(z, depth);
-		// return z * width * height + y * width + x;
-		return x * height * depth + y * depth + z; // better cache hit ratio in our use case
-	}
-
-	inline       T& mut_ref(size_t x, size_t y, size_t z)       { return data[index(x, y, z)]; }
-	inline const T&     ref(size_t x, size_t y, size_t z) const { return data[index(x, y, z)]; }
-	inline       T      get(size_t x, size_t y, size_t z) const { return data[index(x, y, z)]; }
-	inline void set(size_t x, size_t y, size_t z, const T& value) { data[index(x, y, z)] = value; }
-
-	inline size_t size() const { return data.size(); }
-};
-
 using Graphics = Array2D<std::vector<ColorIndex>>;
 
 struct PalettedImage
@@ -193,9 +145,9 @@ using Image = Array2D<RGBA>;
 
 Image upsample(const Image& image)
 {
-	Image result(image.width * kUpscale, image.height * kUpscale, {});
-	for (const auto y : irange(result.height)) {
-		for (const auto x : irange(result.width)) {
+	Image result(image.width() * kUpscale, image.height() * kUpscale, {});
+	for (const auto y : irange(result.height())) {
+		for (const auto x : irange(result.width())) {
 			result.set(x, y, image.get(x / kUpscale, y / kUpscale));
 		}
 	}
@@ -510,10 +462,10 @@ Graphics OverlappingModel::graphics(const Output& output) const
 
 Image image_from_graphics(const Graphics& graphics, const Palette& palette)
 {
-	Image result(graphics.width, graphics.height, {0, 0, 0, 0});
+	Image result(graphics.width(), graphics.height(), {0, 0, 0, 0});
 
-	for (const auto y : irange(graphics.height)) {
-		for (const auto x : irange(graphics.width)) {
+	for (const auto y : irange(graphics.height())) {
+		for (const auto x : irange(graphics.width())) {
 			const auto& tile_constributors = graphics.ref(x, y);
 			if (tile_constributors.empty()) {
 				result.set(x, y, {0, 0, 0, 255});
@@ -992,14 +944,14 @@ Result run(Output* output, const Model& model, size_t seed, size_t limit, jo_gif
 
 		if (gif_out && l % kGifInterval == 0) {
 			const auto image = model.image(*output);
-			jo_gif_frame(gif_out, (uint8_t*)image.data.data(), kGifDelayCentiSec, kGifSeparatePalette);
+			jo_gif_frame(gif_out, (uint8_t*)image.data(), kGifDelayCentiSec, kGifSeparatePalette);
 		}
 
 		if (result != Result::kUnfinished) {
 			if (gif_out) {
 				// Pause on the last image:
-				const auto image = model.image(*output);
-				jo_gif_frame(gif_out, (uint8_t*)image.data.data(), kGifEndPauseCentiSec, kGifSeparatePalette);
+				auto image = model.image(*output);
+				jo_gif_frame(gif_out, (uint8_t*)image.data(), kGifEndPauseCentiSec, kGifSeparatePalette);
 			}
 
 			LOG_F(INFO, "%s after %lu iterations", result2str(result), l);
@@ -1030,7 +982,7 @@ void run_and_write(const Options& options, const std::string& name, const config
 				const auto initial_image = model.image(output);
 				const auto gif_path = emilib::strprintf("output/%s_%lu.gif", name.c_str(), i);
 				const int gif_palette_size = 255; // TODO
-				gif = jo_gif_start(gif_path.c_str(), initial_image.width, initial_image.height, 0, gif_palette_size);
+				gif = jo_gif_start(gif_path.c_str(), initial_image.width(), initial_image.height(), 0, gif_palette_size);
 			}
 
 			const auto result = run(&output, model, seed, limit, options.export_gif ? &gif : nullptr);
@@ -1042,7 +994,7 @@ void run_and_write(const Options& options, const std::string& name, const config
 			if (result == Result::kSuccess) {
 				const auto image = model.image(output);
 				const auto out_path = emilib::strprintf("output/%s_%lu.png", name.c_str(), i);
-				CHECK_F(stbi_write_png(out_path.c_str(), image.width, image.height, 4, image.data.data(), 0) != 0,
+				CHECK_F(stbi_write_png(out_path.c_str(), image.width(), image.height(), 4, image.data(), 0) != 0,
 				        "Failed to write image to %s", out_path.c_str());
 				break;
 			}
