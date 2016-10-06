@@ -933,6 +933,19 @@ Output create_output(const Model& model)
 	return output;
 }
 
+Image scroll_diagonally(const Image& image)
+{
+	const auto width = image.width();
+	const auto height = image.height();
+	Image result(width, height);
+	for (const auto y : irange(height)) {
+		for (const auto x : irange(width)) {
+			result.set(x, y, image.get((x + 1) % width, (y + 1) % height));
+		}
+	}
+	return result;
+}
+
 Result run(Output* output, const Model& model, size_t seed, size_t limit, jo_gif_t* gif_out)
 {
 	std::mt19937 gen(seed);
@@ -952,6 +965,14 @@ Result run(Output* output, const Model& model, size_t seed, size_t limit, jo_gif
 				// Pause on the last image:
 				auto image = model.image(*output);
 				jo_gif_frame(gif_out, (uint8_t*)image.data(), kGifEndPauseCentiSec, kGifSeparatePalette);
+
+				if (model._periodic_out) {
+					// Scroll the image diagonally:
+					for (size_t i = 0; i < model._width; ++i) {
+						image = scroll_diagonally(image);
+						jo_gif_frame(gif_out, (uint8_t*)image.data(), kGifDelayCentiSec, kGifSeparatePalette);
+					}
+				}
 			}
 
 			LOG_F(INFO, "%s after %lu iterations", result2str(result), l);
