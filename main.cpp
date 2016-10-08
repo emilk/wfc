@@ -61,7 +61,7 @@
 #include "arrays.hpp"
 
 const auto kUsage = R"(
-wfc.bin [-h/--help] [--gif] [job=samples.cfg, ...]
+wfc.bin [-h/--help] [--gif] [job=samples.json, ...]
 	-h/--help   Print this help
 	--gif       Export GIF images of the process
 	file        Jobs to run
@@ -1023,10 +1023,10 @@ void run_and_write(const Options& options, const std::string& name, const config
 	}
 }
 
-std::unique_ptr<Model> make_overlapping(const std::string& image_dir, const configuru::Config& config)
+std::unique_ptr<Model> make_overlapping(const configuru::Config& config)
 {
 	const auto image_filename = config["image"].as_string();
-	const auto in_path = image_dir + image_filename;
+	const auto in_path = image_filename;
 
 	const int    n              = config.get_or("n",             3);
 	const size_t out_width      = config.get_or("width",        48);
@@ -1047,9 +1047,9 @@ std::unique_ptr<Model> make_overlapping(const std::string& image_dir, const conf
 	};
 }
 
-std::unique_ptr<Model> make_tiled(const std::string& image_dir, const configuru::Config& config)
+std::unique_ptr<Model> make_tiled(const configuru::Config& config)
 {
-	const std::string subdir     = config["subdir"].as_string();
+	const std::string dir     = config["dir"].as_string();
 	const size_t      out_width  = config.get_or("width",    48);
 	const size_t      out_height = config.get_or("height",   48);
 	const std::string subset     = config.get_or("subset",   std::string());
@@ -1057,7 +1057,7 @@ std::unique_ptr<Model> make_tiled(const std::string& image_dir, const configuru:
 
 	const TileLoader tile_loader = [&](const std::string& tile_name) -> Tile
 	{
-		const std::string path = emilib::strprintf("%s%s/%s.bmp", image_dir.c_str(), subdir.c_str(), tile_name.c_str());
+		const std::string path = emilib::strprintf("%s/%s.bmp", dir.c_str(), tile_name.c_str());
 		int width, height, comp;
 		RGBA* rgba = reinterpret_cast<RGBA*>(stbi_load(path.c_str(), &width, &height, &comp, 4));
 		CHECK_NOTNULL_F(rgba);
@@ -1067,8 +1067,7 @@ std::unique_ptr<Model> make_tiled(const std::string& image_dir, const configuru:
 		return tile;
 	};
 
-	const auto root_dir = image_dir + subdir + "/";
-	const auto tile_config = configuru::parse_file(root_dir + "data.cfg", configuru::CFG);
+	const auto tile_config = configuru::parse_file(dir + "/data.json", configuru::JSON);
 	return std::unique_ptr<Model>{
 		new TileModel(tile_config, subset, out_width, out_height, periodic, tile_loader)
 	};
@@ -1077,23 +1076,20 @@ std::unique_ptr<Model> make_tiled(const std::string& image_dir, const configuru:
 void run_config_file(const Options& options, const std::string& path)
 {
 	LOG_F(INFO, "Running all samples in %s", path.c_str());
-	const auto samples = configuru::parse_file(path, configuru::CFG);
-	const auto image_dir = samples["image_dir"].as_string();
+	const auto samples = configuru::parse_file(path, configuru::JSON);
 
-	if (samples.count("overlapping")) {
-		for (const auto& p : samples["overlapping"].as_object()) {
-			LOG_SCOPE_F(INFO, "%s", p.key().c_str());
-			const auto model = make_overlapping(image_dir, p.value());
+	for (const auto& p : samples.as_object()) {
+		const auto type = p.value()["type"];
+		LOG_SCOPE_F(INFO, "%s %s", type.c_str(), p.key().c_str());
+		if (type == "overlapping") {
+			const auto model = make_overlapping(p.value());
 			run_and_write(options, p.key(), p.value(), *model);
 			p.value().check_dangling();
-		}
-	}
-
-	if (samples.count("tiled")) {
-		for (const auto& p : samples["tiled"].as_object()) {
-			LOG_SCOPE_F(INFO, "Tiled %s", p.key().c_str());
-			const auto model = make_tiled(image_dir, p.value());
+		} else if (type == "tiled") {
+			const auto model = make_tiled(p.value());
 			run_and_write(options, p.key(), p.value(), *model);
+		} else {
+			ABORT_F("Unknown type: '%s'", type.c_str());
 		}
 	}
 }
@@ -1119,7 +1115,7 @@ int main(int argc, char* argv[])
 	}
 
 	if (files.empty()) {
-		files.push_back("samples.cfg");
+		files.push_back("samples.json");
 	}
 
 	for (const auto& file : files) {

@@ -33,6 +33,6 @@ All required third-party libraries are included or downloaded by running `./main
 
 # Limitations
 This port supports everything in https://github.com/mxgmn/WaveFunctionCollapse (as of October 2016),
-though with slightly different input ([.cfg files](https://github.com/emilk/Configuru) over .xml, for instance).
+though with slightly different input in .json over .xml, for instance.
 
 The code is not optimized nor well-documented. It could also do with some further cleanup.
