@@ -12,8 +12,8 @@
 
 	mkdir -p build
 
-	CXX=g++
-	CPPFLAGS="--std=c++14 -Wall -Wno-sign-compare -O2 -g -DNDEBUG"
+	CXX="g++-5"
+	CPPFLAGS="--std=c++1y -Wall -Wno-sign-compare -O2 -g -DNDEBUG"
 	LDLIBS="-lstdc++ -lpthread -ldl"
 	OBJECTS=""
 
