@@ -31,6 +31,11 @@ All required third-party libraries are included or downloaded by running `./main
 * https://github.com/nothings/stb (image read/write)
 * http://www.jonolick.com/home/gif-writer (write gif files)
 
+# Performance
+The sample configuration finishes **25% faster** than the original version (50 vs 40 seconds).
+
+Tested on a Linux VM, speed may be better on an installed distribution.
+
 # Limitations
 This port supports everything in https://github.com/mxgmn/WaveFunctionCollapse (as of October 2016),
 though with slightly different input ([.cfg files](https://github.com/emilk/Configuru) over .xml, for instance).
