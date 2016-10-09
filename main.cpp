@@ -49,6 +49,7 @@
 #include <vector>
 
 #include <configuru.hpp>
+#include <emilib/file_system.hpp>
 #include <emilib/irange.hpp>
 #include <emilib/strprintf.hpp>
 #include <loguru.hpp>
@@ -1078,20 +1079,28 @@ void run_config_file(const Options& options, const std::string& path)
 	LOG_F(INFO, "Running all samples in %s", path.c_str());
 	const auto samples = configuru::parse_file(path, configuru::JSON);
 
-	for (const auto& p : samples.as_object()) {
-		const auto type = p.value()["type"];
-		LOG_SCOPE_F(INFO, "%s %s", type.c_str(), p.key().c_str());
-		if (type == "overlapping") {
-			const auto model = make_overlapping(p.value());
-			run_and_write(options, p.key(), p.value(), *model);
-			p.value().check_dangling();
-		} else if (type == "tiled") {
-			const auto model = make_tiled(p.value());
-			run_and_write(options, p.key(), p.value(), *model);
-		} else {
-			ABORT_F("Unknown type: '%s'", type.c_str());
+	if (samples.count("overlapping")) {
+		for (const auto& config : samples["overlapping"].as_array()) {
+			const auto image_path = config["image"].as_string();
+			auto output_name = config.get_or("output", fs::without_ending(fs::file_name(image_path)));
+			LOG_SCOPE_F(INFO, "overlapping %s", output_name.c_str());
+			const auto model = make_overlapping(config);
+			run_and_write(options, output_name, config, *model);
+			config.check_dangling();
 		}
 	}
+
+	if (samples.count("tiled")) {
+		for (const auto& config : samples["tiled"].as_array()) {
+			auto output_name = config["output"].as_string();
+			LOG_SCOPE_F(INFO, "tiled %s", output_name.c_str());
+			const auto model = make_tiled(config);
+			run_and_write(options, output_name, config, *model);
+			config.mark_accessed(true);
+		}
+	}
+
+	samples.check_dangling();
 }
 
 int main(int argc, char* argv[])

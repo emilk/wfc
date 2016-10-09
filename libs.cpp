@@ -10,6 +10,7 @@
 #define LOGURU_IMPLEMENTATION 1
 #include <loguru.hpp>
 
+#include <emilib/file_system.cpp>
 #include <emilib/strprintf.cpp>
 
 #include <jo_gif.cpp>
