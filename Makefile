@@ -31,7 +31,7 @@ $(DISTDIR):
 $(OUTPUTDIR):
 	$(MKDIR) $(OUTPUTDIR)
 
-run:
+run: all
 	./$(BIN)
 
 clean:
