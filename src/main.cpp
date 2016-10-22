@@ -26,6 +26,7 @@
 #include "options.hpp"
 #include "result.hpp"
 #include "paletted_image.hpp"
+#include "output.hpp"
 
 
 const char* result2str(const Result result)
@@ -37,15 +38,6 @@ const char* result2str(const Result result)
 
 
 
-// What actually changes
-struct Output
-{
-	// _width X _height X num_patterns
-	// _wave.get(x, y, t) == is the pattern t possible at x, y?
-	// Starts off true everywhere.
-	Array3D<Bool> _wave;
-	Array2D<Bool> _changes; // _width X _height. Starts off false everywhere.
-};
 
 using Image = Array2D<RGBA>;
 
