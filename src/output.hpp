@@ -12,7 +12,11 @@ struct Output
 	// Starts off true everywhere.
 	Array3D<Bool> _wave;
 	Array2D<Bool> _changes; // _width X _height. Starts off false everywhere.
+
 };
+
+struct Model;
+Output create_output(const Model& model);
 
 #endif
 
