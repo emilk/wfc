@@ -33,6 +33,7 @@
 #include "pattern_hash.hpp"
 #include "pattern.hpp"
 #include "pattern_prevalence.hpp"
+#include "tile.hpp"
 
 
 const char* result2str(const Result result)
@@ -75,17 +76,6 @@ size_t spin_the_bottle(const std::vector<double>& a, double between_zero_and_one
 
 
 
-Tile rotate(const Tile& in_tile, const size_t tile_size)
-{
-	CHECK_EQ_F(in_tile.size(), tile_size * tile_size);
-	Tile out_tile;
-	for (size_t y : irange(tile_size)) {
-		for (size_t x : irange(tile_size)) {
-			out_tile.push_back(in_tile[tile_size - 1 - y + x * tile_size]);
-		}
-	}
-	return out_tile;
-}
 
 TileModel::TileModel(const configuru::Config& config, std::string subset_name, int width, int height, bool periodic_out, const TileLoader& tile_loader)
 {
