@@ -21,6 +21,7 @@
 
 #include "arrays.hpp"
 #include "rgba.hpp"
+#include "options.hpp"
 
 const auto kUsage = R"(
 wfc.bin [-h/--help] [--gif] [job=samples.cfg, ...]
@@ -48,11 +49,6 @@ const size_t kGifInterval         =  16; // Save an image every X iterations
 const int    kGifDelayCentiSec    =   1;
 const int    kGifEndPauseCentiSec = 200;
 const size_t kUpscale             =   4; // Upscale images before saving
-
-struct Options
-{
-	bool export_gif = false;
-};
 
 enum class Result
 {
