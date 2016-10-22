@@ -16,5 +16,7 @@ struct PalettedImage
 	}
 };
 
+PalettedImage load_paletted_image(const std::string& path);
+
 #endif
 
