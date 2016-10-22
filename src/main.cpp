@@ -1,13 +1,7 @@
-#include <algorithm>
-#include <array>
-#include <cmath>
 #include <limits>
-#include <memory>
-#include <numeric>
-#include <random>
-#include <unordered_map>
-#include <unordered_set>
 #include <vector>
+#include <string>
+#include <memory>
 
 #include <configuru.hpp>
 #include <emilib/strprintf.hpp>
@@ -19,21 +13,17 @@
 #include <jo_gif.cpp>
 
 #include "constants.hpp"
-#include "array2d.hpp"
-#include "array3d.hpp"
 #include "rgba.hpp"
 #include "options.hpp"
 #include "result.hpp"
-#include "paletted_image.hpp"
 #include "output.hpp"
 #include "model.hpp"
 #include "overlapping_model.hpp"
-#include "tile_model.hpp"
-#include "image.hpp"
-#include "pattern_hash.hpp"
-#include "pattern.hpp"
-#include "pattern_prevalence.hpp"
 #include "tile.hpp"
+#include "tile_model.hpp"
+#include "pattern_hash.hpp"
+#include "paletted_image.hpp"
+#include "pattern_prevalence.hpp"
 
 
 void run_and_write(const Options& options, const std::string& name, const configuru::Config& config, const Model& model)
