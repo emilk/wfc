@@ -22,6 +22,7 @@
 #include "arrays.hpp"
 #include "rgba.hpp"
 #include "options.hpp"
+#include "result.hpp"
 
 const auto kUsage = R"(
 wfc.bin [-h/--help] [--gif] [job=samples.cfg, ...]
@@ -50,12 +51,6 @@ const int    kGifDelayCentiSec    =   1;
 const int    kGifEndPauseCentiSec = 200;
 const size_t kUpscale             =   4; // Upscale images before saving
 
-enum class Result
-{
-	kSuccess,
-	kFail,
-	kUnfinished,
-};
 
 const char* result2str(const Result result)
 {
