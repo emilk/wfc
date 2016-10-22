@@ -37,12 +37,6 @@ const char* result2str(const Result result)
 	     : "unfinished";
 }
 
-
-
-
-
-// ----------------------------------------------------------------------------
-
 Image upsample(const Image& image)
 {
 	Image result(image.width() * kUpscale, image.height() * kUpscale, {});
@@ -53,13 +47,6 @@ Image upsample(const Image& image)
 	}
 	return result;
 }
-
-// ----------------------------------------------------------------------------
-
-// ----------------------------------------------------------------------------
-
-
-// ----------------------------------------------------------------------------
 
 using Tile = std::vector<RGBA>;
 using TileLoader = std::function<Tile(const std::string& tile_name)>;
