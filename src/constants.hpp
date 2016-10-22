@@ -4,6 +4,7 @@
 #include <unordered_map>
 #include <vector>
 #include <functional>
+#include "array2d.hpp"
 #include "rgba.hpp"
 
 const auto kUsage = R"(
@@ -23,6 +24,7 @@ using PatternHash       = uint64_t; // Another representation of a Pattern.
 using PatternPrevalence = std::unordered_map<PatternHash, size_t>;
 using RandomDouble      = std::function<double()>;
 using PatternIndex      = uint16_t;
+using Graphics          = Array2D<std::vector<ColorIndex>>;
 
 const auto kInvalidIndex = static_cast<size_t>(-1);
 const auto kInvalidHash = static_cast<PatternHash>(-1);
@@ -32,6 +34,9 @@ const size_t kGifInterval         =  16; // Save an image every X iterations
 const int    kGifDelayCentiSec    =   1;
 const int    kGifEndPauseCentiSec = 200;
 const size_t kUpscale             =   4; // Upscale images before saving
+
+const size_t MAX_COLORS = 1 << (sizeof(ColorIndex) * 8);
+
 
 #endif
 

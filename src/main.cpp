@@ -20,7 +20,8 @@
 #include <jo_gif.cpp>
 
 #include "constants.hpp"
-#include "arrays.hpp"
+#include "array2d.hpp"
+#include "array3d.hpp"
 #include "rgba.hpp"
 #include "options.hpp"
 #include "result.hpp"
@@ -34,9 +35,6 @@ const char* result2str(const Result result)
 	     : "unfinished";
 }
 
-const size_t MAX_COLORS = 1 << (sizeof(ColorIndex) * 8);
-
-using Graphics = Array2D<std::vector<ColorIndex>>;
 
 
 // What actually changes
