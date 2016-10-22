@@ -14,16 +14,16 @@ The sample images are from https://github.com/mxgmn/WaveFunctionCollapse, so the
 
     git clone git@github.com:emilk/wfc.git
     cd wfc
-    ./main.cpp
+    make run
 
-`./main.cpp` starts with a shell script that downloads dependencies, build, links, and finally runs the program.
+`make run` starts downloads dependencies, build, links, and finally runs the program.
 
 This works on Mac and Linux.
 
 # Requirements
 C++14. Nothing more, really.
 
-All required third-party libraries are included or downloaded by running `./main.cpp`. These are:
+All required third-party libraries are included or downloaded by running `make`. These are:
 
 * https://github.com/emilk/configuru (`.cfg` loading)
 * https://github.com/emilk/emilib (small helpers for looping and string formating)
