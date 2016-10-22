@@ -39,7 +39,6 @@ const char* result2str(const Result result)
 
 
 
-using Image = Array2D<RGBA>;
 
 // ----------------------------------------------------------------------------
 

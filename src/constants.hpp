@@ -25,6 +25,7 @@ using PatternPrevalence = std::unordered_map<PatternHash, size_t>;
 using RandomDouble      = std::function<double()>;
 using PatternIndex      = uint16_t;
 using Graphics          = Array2D<std::vector<ColorIndex>>;
+using Image             = Array2D<RGBA>;
 
 const auto kInvalidIndex = static_cast<size_t>(-1);
 const auto kInvalidHash = static_cast<PatternHash>(-1);
