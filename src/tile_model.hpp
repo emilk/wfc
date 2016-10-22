@@ -2,6 +2,7 @@
 #define WFC_TILE_MODEL_HPP
 
 #include <vector>
+#include <string>
 #include <configuru.hpp>
 #include "model.hpp"
 #include "output.hpp"
@@ -12,7 +13,14 @@
 class TileModel : public Model
 {
 public:
-	TileModel(const configuru::Config& config, std::string subset_name, int width, int height, bool periodic, const TileLoader& tile_loader);
+	TileModel(
+        const configuru::Config& config,
+        std::string subset_name,
+        int width,
+        int height,
+        bool periodic,
+        const TileLoader& tile_loader
+    );
 
 	bool propagate(Output* output) const override;
 
