@@ -2,6 +2,7 @@
 #define WFC_ARRAY2D_HPP
 
 #include <vector>
+#include <loguru.hpp>
 
 template<typename T>
 struct Array2D

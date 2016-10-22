@@ -2,9 +2,12 @@
 #define WFC_OVERLAPPING_MODEL_HPP
 
 #include <vector>
+#include <cmath>
 #include "model.hpp"
 #include "constants.hpp"
 #include "array3d.hpp"
+
+Pattern pattern_from_hash(const PatternHash hash, int n, size_t palette_size);
 
 class OverlappingModel : public Model
 {

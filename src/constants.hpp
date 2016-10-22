@@ -4,6 +4,7 @@
 #include <unordered_map>
 #include <vector>
 #include <functional>
+#include <emilib/irange.hpp>
 #include "array2d.hpp"
 #include "rgba.hpp"
 

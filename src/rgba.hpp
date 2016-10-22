@@ -4,9 +4,16 @@
 struct RGBA
 {
 	uint8_t r, g, b, a;
+
+    bool operator==(RGBA o) const
+    {
+        return r == o.r
+            && g == o.g
+            && b == o.b
+            && a == o.a;
+    }
 };
 static_assert(sizeof(RGBA) == 4, "");
-bool operator==(RGBA x, RGBA y) { return x.r == y.r && x.g == y.g && x.b == y.b && x.a == y.a; }
 
 #endif
 
