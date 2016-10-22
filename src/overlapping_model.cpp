@@ -173,4 +173,3 @@ Image OverlappingModel::image(const Output& output) const
 	return upsample(image_from_graphics(graphics(output), _palette));
 }
 
-

@@ -31,6 +31,7 @@
 #include "tile_model.hpp"
 #include "image.hpp"
 #include "pattern_hash.hpp"
+#include "pattern.hpp"
 
 
 const char* result2str(const Result result)
@@ -71,17 +72,6 @@ size_t spin_the_bottle(const std::vector<double>& a, double between_zero_and_one
 	return 0;
 }
 
-template<typename Fun>
-Pattern make_pattern(int n, const Fun& fun)
-{
-	Pattern result(n * n);
-	for (auto dy : irange(n)) {
-		for (auto dx : irange(n)) {
-			result[dy * n + dx] = fun(dx, dy);
-		}
-	}
-	return result;
-};
 
 
 Tile rotate(const Tile& in_tile, const size_t tile_size)
