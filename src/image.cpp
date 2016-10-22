@@ -46,3 +46,17 @@ Image image_from_graphics(const Graphics& graphics, const Palette& palette)
 	return result;
 }
 
+Image scroll_diagonally(const Image& image)
+{
+	const auto width = image.width();
+	const auto height = image.height();
+	Image result(width, height);
+	for (const auto y : irange(height)) {
+		for (const auto x : irange(width)) {
+			result.set(x, y, image.get((x + 1) % width, (y + 1) % height));
+		}
+	}
+	return result;
+}
+
+
