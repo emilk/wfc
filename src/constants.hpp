@@ -4,6 +4,7 @@
 #include <unordered_map>
 #include <vector>
 #include <functional>
+#include <string>
 #include <emilib/irange.hpp>
 #include "array2d.hpp"
 #include "rgba.hpp"
@@ -27,6 +28,8 @@ using RandomDouble      = std::function<double()>;
 using PatternIndex      = uint16_t;
 using Graphics          = Array2D<std::vector<ColorIndex>>;
 using Image             = Array2D<RGBA>;
+using Tile              = std::vector<RGBA>;
+using TileLoader        = std::function<Tile(const std::string& tile_name)>;
 
 const auto kInvalidIndex = static_cast<size_t>(-1);
 const auto kInvalidHash = static_cast<PatternHash>(-1);
