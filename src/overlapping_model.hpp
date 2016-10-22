@@ -6,6 +6,7 @@
 #include "model.hpp"
 #include "constants.hpp"
 #include "array3d.hpp"
+#include "image.hpp"
 
 Pattern pattern_from_hash(const PatternHash hash, int n, size_t palette_size);
 
