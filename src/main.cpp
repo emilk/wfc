@@ -20,6 +20,7 @@
 #include <jo_gif.cpp>
 
 #include "arrays.hpp"
+#include "rgba.hpp"
 
 const auto kUsage = R"(
 wfc.bin [-h/--help] [--gif] [job=samples.cfg, ...]
@@ -29,13 +30,6 @@ wfc.bin [-h/--help] [--gif] [job=samples.cfg, ...]
 )";
 
 using emilib::irange;
-
-struct RGBA
-{
-	uint8_t r, g, b, a;
-};
-static_assert(sizeof(RGBA) == 4, "");
-bool operator==(RGBA x, RGBA y) { return x.r == y.r && x.g == y.g && x.b == y.b && x.a == y.a; }
 
 using Bool              = uint8_t; // To avoid problems with vector<bool>
 using ColorIndex        = uint8_t; // tile index or color index. If you have more than 255, don't.
