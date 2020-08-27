@@ -1,0 +1,12 @@
+language: cpp
+sudo: required
+dist: trusty
+compiler: g++-5
+addons:
+  apt:
+    sources:
+      - ubuntu-toolchain-r-test
+    packages:
+      - g++-5
+env: COMPILER=g++-5
+script: ./main.cpp
